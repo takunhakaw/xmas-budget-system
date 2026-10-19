@@ -292,6 +292,8 @@
         .sync-badge.err { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
         body.booting .container { visibility: hidden; }
         body.role-group .admin-only { display: none !important; }
+        .group-only { display: none; }
+        body.role-group .group-only { display: block; }
         .login-overlay { position: fixed; inset: 0; background: #0f172a; z-index: 3000; display: none; align-items: center; justify-content: center; padding: 16px; }
         .login-box { background: #fff; border-radius: 16px; padding: 24px; width: 100%; max-width: 380px; box-shadow: 0 20px 40px rgba(0,0,0,.3); }
         .login-box h2 { margin-bottom: 6px; }
@@ -393,6 +395,26 @@
                         <div class="progress-bar-container"><div id="group4-progress" class="progress-bar"></div></div>
                         <p id="group4-balance" style="font-size: 0.85rem; color: #555;">剩餘: NT$ 0</p>
                     </div>
+                </div>
+            </section>
+
+            <!-- 本組預算 (各組會計) -->
+            <section class="form-section group-only" id="my-budget-panel">
+                <h2 id="my-budget-title">📋 本組預算</h2>
+                <div class="card-group-row" style="margin-bottom: 14px;">
+                    <div class="card balance"><h3>本組預算</h3><p id="my-budget-total">NT$ 0</p></div>
+                    <div class="card expense"><h3>已執行（核銷＋預支）</h3><p id="my-budget-used">NT$ 0</p></div>
+                    <div class="card income"><h3>目前剩餘</h3><p id="my-budget-remain">NT$ 0</p></div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+                    <div style="flex: 1; background: #e2e8f0; border-radius: 99px; height: 12px; overflow: hidden;"><div id="my-budget-bar" style="width: 0; height: 100%;"></div></div>
+                    <b id="my-budget-rate" style="min-width: 52px;"></b>
+                </div>
+                <div class="table-responsive">
+                    <table style="min-width: 560px;">
+                        <thead><tr><th>經費項目</th><th>預算</th><th>已執行</th><th>剩餘</th><th>備註說明</th></tr></thead>
+                        <tbody id="my-budget-body"></tbody>
+                    </table>
                 </div>
             </section>
 
@@ -962,6 +984,43 @@
             });
             html += line('合計', T, T.bud, true);
             tb.innerHTML = html;
+        }
+
+        // ---------- 各組會計：本組預算總覽（唯讀） ----------
+        function renderMyBudget() {
+            const body = document.getElementById('my-budget-body');
+            if (!body || myRole !== 'group') return;
+            const g = myGroup;
+            const items = groupBudgetItems[g] || [];
+            const actual = {}; let used = 0;
+            transactions.forEach(t => {
+                if (t.group !== g || t.flowType === 'income') return;
+                actual[t.category] = (actual[t.category] || 0) + t.amount;
+                used += t.amount;
+            });
+            const total = items.reduce((s, i) => s + (parseFloat(i.budget) || 0), 0);
+            const remain = total - used, rate = total > 0 ? used / total : (used > 0 ? 9.99 : 0);
+            const col = rate > 1 ? '#dc2626' : rate > 0.75 ? '#d97706' : '#059669';
+            document.getElementById('my-budget-title').textContent = `📋 ${GROUP_NAME_MAP[g]} 預算總覽`;
+            document.getElementById('my-budget-total').textContent = fmtMoney(total);
+            document.getElementById('my-budget-used').textContent = fmtMoney(used);
+            const rem = document.getElementById('my-budget-remain');
+            rem.textContent = fmtMoney(remain); rem.style.color = remain < 0 ? '#dc2626' : '';
+            const bar = document.getElementById('my-budget-bar');
+            bar.style.width = Math.min(rate, 1) * 100 + '%'; bar.style.background = col;
+            const r = document.getElementById('my-budget-rate');
+            r.textContent = total > 0 ? Math.round(rate * 100) + '%' : '-'; r.style.color = col;
+
+            let rows = items.map(i => {
+                const b = parseFloat(i.budget) || 0, a = actual[i.category] || 0, rm = b - a;
+                delete actual[i.category];
+                return `<tr><td style="font-weight:600;">${esc(i.category)}</td><td>${fmtMoney(b)}</td><td>${fmtMoney(a)}</td>
+                    <td style="font-weight:bold; color:${rm < 0 ? '#dc2626' : '#059669'};">${fmtMoney(rm)}${rm < 0 ? ' ⚠️' : ''}</td><td>${esc(i.note || '-')}</td></tr>`;
+            }).join('');
+            Object.keys(actual).forEach(c => {
+                rows += `<tr><td>${esc(c)}</td><td>-</td><td>${fmtMoney(actual[c])}</td><td style="color:#dc2626; font-weight:bold;">預算外</td><td>-</td></tr>`;
+            });
+            body.innerHTML = rows || '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">管理員尚未編列本組預算項目</td></tr>';
         }
 
         // ---------- 後台：四場次總表分析 ----------
@@ -1664,6 +1723,7 @@
             updateGroupCard('group4', g4Exp, budgets.group4);
             renderCashflow();
             renderAnalysis();
+            renderMyBudget();
         }
 
         // 載入流程：先秒開本機快取，再向 Google Drive 抓最新資料
