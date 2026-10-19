@@ -284,6 +284,7 @@
         .view-section { display: none; }
         .view-section.active { display: block; }
 
+        /* ===== 雲端同步狀態 / 手機版 ===== */
         .floating-action-bar { flex-wrap: wrap; align-items: center; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
         .sync-badge { font-size: 0.85rem; font-weight: 600; padding: 8px 12px; border-radius: 999px; cursor: pointer; user-select: none; border: 1px solid transparent; }
         .sync-badge.ok { background: #dcfce7; color: #166534; border-color: #86efac; }
@@ -317,8 +318,9 @@
             <div id="role-banner" class="role-banner"></div>
         </header>
 
-        <!-- 總覽視圖 -->
+        <!-- ==================== 總覽視圖 ==================== -->
         <div id="main-view" class="view-section active">
+            <!-- 功能列區 -->
             <section class="action-bar-section admin-only">
                 <div class="toolbar-grid">
                     <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 280px;">
@@ -339,6 +341,7 @@
                 </div>
             </section>
 
+            <!-- 預算設定區 -->
             <section class="budget-setting-section admin-only">
                 <h2>專案預算額度設定 (<span id="current-version-title" style="color: #0284c7;">原版</span>)</h2>
                 <div class="budget-inputs">
@@ -354,6 +357,7 @@
                 <div id="total-sum-warning" style="font-size: 0.9rem; font-weight: bold; color: #10b981; margin-top: -6px;">各組預算加總計算中...</div>
             </section>
 
+            <!-- 全體彙總儀表板 -->
             <section class="dashboard admin-only">
                 <h2>全體彙總資料</h2>
                 <div class="card-group-row">
@@ -363,6 +367,7 @@
                 </div>
             </section>
 
+            <!-- 各場次動向看板 -->
             <section class="group-dashboard admin-only">
                 <h2>各場次執行進度與動向 (點擊卡片查看明細與編輯項目)</h2>
                 <div class="group-cards-grid">
@@ -393,6 +398,7 @@
                 </div>
             </section>
 
+            <!-- 本組預算 (各組會計) -->
             <section class="form-section group-only" id="my-budget-panel">
                 <h2 id="my-budget-title">📋 本組預算</h2>
                 <div class="card-group-row" style="margin-bottom: 14px;">
@@ -412,6 +418,7 @@
                 </div>
             </section>
 
+            <!-- 後台管理 (僅管理員) -->
             <section class="form-section admin-only" id="admin-panel">
                 <h2>🏦 後台管理（僅管理員可見）</h2>
                 <div style="margin-bottom: 18px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
@@ -445,6 +452,7 @@
                 </div>
             </section>
 
+            <!-- 四場次總表分析 (僅管理員) -->
             <section class="form-section admin-only" id="analysis-panel">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px;">
                     <h2 style="margin-bottom: 0;">📊 四場次經費明細總表分析</h2>
@@ -486,6 +494,7 @@
                 <div id="analysis-insights" style="font-size: 0.92rem; line-height: 1.8;"></div>
             </section>
 
+            <!-- 新增帳目表單 -->
             <section class="form-section">
                 <h2>新增帳目與核銷紀錄</h2>
                 <div id="form-group-remain-hint" style="background: #f1f5f9; padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-weight: 600; color: #334155; font-size: 0.95rem; border-left: 4px solid #3b82f6;">
@@ -493,7 +502,7 @@
                 </div>
                 <form id="account-form">
                     <div class="form-grid">
-                        <div class="form-group"><label>發票號碼or憑證排序</label><input type="text" id="code" required></div>
+                        <div class="form-group"><label>編號</label><input type="text" id="code" required></div>
                         <div class="form-group"><label>日期</label><input type="date" id="date" required></div>
                         <div class="form-group"><label>交易架構</label>
                             <select id="flow-type" onchange="handleFlowTypeChange()">
@@ -539,6 +548,7 @@
                 </form>
             </section>
 
+            <!-- 歷史帳目清單 -->
             <section class="list-section">
                 <h2>歷史帳目清單</h2>
                 <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;">
@@ -563,7 +573,7 @@
             </section>
         </div>
 
-        <!-- 明細與預算項目編輯視圖 -->
+        <!-- ==================== 明細與預算項目編輯視圖 ==================== -->
         <div id="detail-view" class="view-section">
             <button class="btn-back" onclick="backToMainView()">&larr; 返回總覽</button>
             <section class="list-section">
@@ -576,6 +586,7 @@
                     </div>
                 </div>
 
+                <!-- 預算項目標題與自動排序工具列 -->
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
                     <h3>📊 經費項目與預算金額調整</h3>
                     <div style="display: flex; gap: 10px; align-items: center;">
@@ -621,6 +632,7 @@
     </div>
 
     <script>
+        // Google Apps Script 雲端 API 網址
         const GAS_API_URL = "https://script.google.com/macros/s/AKfycbzY9MSAPHu--0cyJqXanPaDJSRv5wqdo83c-umE4Gy1Cr4NsbC6xmZrlssUQloVwUIW/exec";
 
         let currentVersion = 'original';
@@ -684,10 +696,11 @@
         let groupBudgetItems = allGroupBudgetItems[currentVersion];
         let transactions = allTransactions[currentVersion] || [];
 
+        // ================== Google Drive 雲端同步（管理員 / 各組會計） ==================
         const LS_KEY = 'xmas115_key', LS_NAME = 'xmas115_name', LS_CACHE = 'xmas115_cache', LS_VER = 'xmas115_curver', LS_LOGSEEN = 'xmas115_logseen';
         const GROUP_NAME_MAP = { 'none': '全體彙總', '1': '第一場次(青年)', '2': '第二場次(松年)', '3': '第三場次(兒童)', '4': '第四場次(主場)' };
-        let myRole = null, myGroup = null;
-        let liveVersion = 'original';
+        let myRole = null, myGroup = null;       // 'admin' | 'group'
+        let liveVersion = 'original';            // 開放會計填報的版本
         let auditLog = [];
         let cloudRev = null, cloudLoaded = false;
         let unsaved = false, saving = false, pendingSave = false, saveTimer = null, lastLoadAt = 0;
@@ -707,6 +720,7 @@
         function newCode() { return 'XMAS-' + (myRole === 'group' ? 'G' + myGroup + '-' : '') + Math.floor(100 + Math.random() * 900); }
         function fmtMoney(n) { return 'NT$ ' + Math.round(n).toLocaleString(); }
 
+        // ---------- 登入 ----------
         function showLogin(msg) {
             document.body.classList.remove('booting');
             document.getElementById('login-overlay').style.display = 'flex';
@@ -730,6 +744,7 @@
             location.reload();
         }
 
+        // ---------- 依角色調整畫面 ----------
         function applyRoleUI() {
             document.body.classList.remove('booting');
             document.body.classList.toggle('role-group', myRole === 'group');
@@ -810,6 +825,7 @@
             try { localStorage.setItem(LS_CACHE, JSON.stringify({ role: myRole, group: myGroup, rev: cloudRev, data: payloadData() })); } catch (e) {}
         }
 
+        // ---------- 讀取 ----------
         async function loadDataFromCloud(manual = false, silent = false) {
             const key = localStorage.getItem(LS_KEY);
             if (!key) { showLogin(''); setSync('err', '🔒 請先登入'); return; }
@@ -835,7 +851,7 @@
                     cloudLoaded = true; cloudRev = 0;
                     if (myRole === 'admin') {
                         setSync('busy', '⏳ 初始化雲端資料…');
-                        await sendOp({ op: 'saveAdmin', data: payloadData() });
+                        await sendOp({ op: 'saveAdmin', data: payloadData() });   // 第一次：建立雲端資料
                     } else {
                         cloudLoaded = false;
                         setSync('err', '⏳ 管理員尚未建立資料，請稍後 (點此重試)');
@@ -859,6 +875,7 @@
             }
         }
 
+        // ---------- 寫入：每次異動立即送出（一筆一筆，依序） ----------
         function sendOp(body) {
             if (!cloudLoaded && body.op !== 'saveAdmin') {
                 alert('⚠️ 尚未連上雲端，這次變更無法儲存。請點右下角狀態標籤重新連線。');
@@ -902,7 +919,7 @@
         function onServerState(r) {
             cloudRev = r.rev; cloudLoaded = true;
             if (r.log) auditLog = r.log;
-            if (r.data && opsPending <= 1) {
+            if (r.data && opsPending <= 1) {            // 還有排隊中的操作時，等最後一筆回應再更新畫面
                 allTransactions = r.data.allTransactions;
                 if (myRole === 'admin' && r.data.liveVersion) { liveVersion = r.data.liveVersion; fillLiveSelect(); }
                 transactions = allTransactions[currentVersion] || [];
@@ -913,6 +930,7 @@
             setSync('ok', '✅ 已儲存至雲端 ' + nowHM());
         }
 
+        // 管理員：預算項目 / 版本 / 開放填報版本（稍微合併後送出）
         function saveToCloud(immediate = false) {
             if (myRole !== 'admin') return;
             if (!cloudLoaded) { alert('⚠️ 尚未連上雲端，這次變更無法儲存。請點右下角狀態標籤重新連線。'); return; }
@@ -935,46 +953,28 @@
             loadDataFromCloud(true);
         }
 
-        // 修改後的現金流計算與顯示函數：
-        // 條件：預算扣出預支與支出且小於等於 0，才開始扣除現金流
+        // ---------- 後台：現金流 / 異動紀錄 ----------
         function renderCashflow() {
             const tb = document.getElementById('cashflow-body');
             if (!tb || myRole !== 'admin') return;
             const keys = ['1', '2', '3', '4', 'none'];
             const rows = {}; keys.forEach(k => rows[k] = { inc: 0, exp: 0, adv: 0 });
-            
             transactions.forEach(t => {
                 const r = rows[t.group]; if (!r) return;
                 if (t.flowType === 'income') r.inc += t.amount;
                 else if (t.flowType === 'advance') r.adv += t.amount;
                 else r.exp += t.amount;
             });
-            
             const bud = { '1': budgets.group1, '2': budgets.group2, '3': budgets.group3, '4': budgets.group4, 'none': null };
             const T = { inc: 0, exp: 0, adv: 0, bud: 0, remain: 0 };
-            
             const line = (name, r, b, bold) => {
-                // 計算預算剩餘：預算 - (核銷支出 + 預支)
-                let remain = b === null ? null : b - r.exp - r.adv;
-                // 淨現金流邏輯：若 b 不為 null 且 預算剩餘 (b - r.exp - r.adv) <= 0，才計算扣除支出/預支金額進現金流，否則該項次淨現金流計算不扣除（或依實際規則）
-                // 題目需求：“只針對淨現金流開始計算時間為，預算扣出預支/支出且小於等於0，才開始扣除現金流。”
-                let effectiveExp = 0;
-                if (remain !== null && remain <= 0) {
-                    effectiveExp = r.exp + r.adv;
-                } else if (b === null) {
-                    effectiveExp = r.exp + r.adv; // 無場次彙總照常計算
-                }
-                const net = r.inc - effectiveExp;
-
+                const net = r.inc - r.exp - r.adv;
+                const remain = b === null ? null : b - r.exp - r.adv;
                 return `<tr style="${bold ? 'font-weight:bold; background:#f1f5f9;' : ''}">
-                    <td>${name}</td>
-                    <td style="color:#059669;">${fmtMoney(r.inc)}</td>
-                    <td>${fmtMoney(r.exp)}</td>
-                    <td style="color:#d97706;">${fmtMoney(r.adv)}</td>
+                    <td>${name}</td><td style="color:#059669;">${fmtMoney(r.inc)}</td><td>${fmtMoney(r.exp)}</td><td style="color:#d97706;">${fmtMoney(r.adv)}</td>
                     <td style="color:${net < 0 ? '#dc2626' : '#059669'}; font-weight:bold;">${fmtMoney(net)}</td>
                     <td style="color:${remain !== null && remain < 0 ? '#dc2626' : '#1e293b'};">${remain === null ? '-' : fmtMoney(remain)}</td></tr>`;
             };
-
             let html = '';
             keys.forEach(k => {
                 const r = rows[k];
@@ -982,23 +982,11 @@
                 if (bud[k] !== null) { T.bud += bud[k]; }
                 html += line(esc(GROUP_NAME_MAP[k]), r, bud[k], false);
             });
-            
-            // 總計的淨現金流邏輯套用總預算與總支出判定
-            const totalRemain = T.bud - T.exp - T.adv;
-            const totalEffectiveExp = (totalRemain <= 0) ? (T.exp + T.adv) : 0; // 若總預算扣除後小於等於0才全面計入
-            const totalNet = T.inc - totalEffectiveExp;
-
-            html += `<tr style="font-weight:bold; background:#f1f5f9;">
-                <td>合計</td>
-                <td style="color:#059669;">${fmtMoney(T.inc)}</td>
-                <td>${fmtMoney(T.exp)}</td>
-                <td style="color:#d97706;">${fmtMoney(T.adv)}</td>
-                <td style="color:${totalNet < 0 ? '#dc2626' : '#059669'};">${fmtMoney(totalNet)}</td>
-                <td>${fmtMoney(totalRemain)}</td></tr>`;
-
+            html += line('合計', T, T.bud, true);
             tb.innerHTML = html;
         }
 
+        // ---------- 各組會計：本組預算總覽（唯讀） ----------
         function renderMyBudget() {
             const body = document.getElementById('my-budget-body');
             if (!body || myRole !== 'group') return;
@@ -1035,6 +1023,7 @@
             body.innerHTML = rows || '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">管理員尚未編列本組預算項目</td></tr>';
         }
 
+        // ---------- 後台：四場次總表分析 ----------
         const A_GROUPS = ['1', '2', '3', '4'];
         const A_SHORT = { '1': '青年場', '2': '松年場', '3': '兒童場', '4': '主場' };
 
@@ -1071,6 +1060,7 @@
             const { cats, M, G, rowTotal } = buildAnalysis();
             const metric = document.getElementById('analysis-metric').value;
 
+            // 1. 各場次總覽
             let TB = 0, TA = 0, html = '';
             A_GROUPS.forEach(g => {
                 const b = G[g].b, a = G[g].a, rem = b - a, rate = b > 0 ? a / b : (a > 0 ? 9.99 : 0);
@@ -1087,6 +1077,7 @@
                 <td style="font-weight:normal; font-size:.85rem;">固定總預算 ${fmtMoney(900000)}，尚未分配 ${fmtMoney(900000 - TB)}</td></tr>`;
             sumBody.innerHTML = html;
 
+            // 2. 項目 × 場次
             const metricName = { actual: '實際執行', budget: '預算', remain: '剩餘', rate: '執行率' }[metric];
             document.getElementById('analysis-matrix-head').innerHTML =
                 `<tr><th>經費項目（${metricName}）</th>${A_GROUPS.map(g => `<th>${A_SHORT[g]}</th>`).join('')}<th>合計</th></tr>`;
@@ -1107,6 +1098,7 @@
             mh += `<tr style="font-weight:bold; background:#f1f5f9;"><td>合計</td>${A_GROUPS.map(g => cell(G[g].b, G[g].a)).join('')}${cell(TB, TA)}</tr>`;
             document.getElementById('analysis-matrix').innerHTML = mh || '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">尚無資料</td></tr>';
 
+            // 3. 重點提醒
             const over = [], unused = [], spend = [];
             cats.forEach(c => {
                 let sum = 0;
@@ -1123,7 +1115,7 @@
             let ins = '';
             ins += over.length ? li('🔴', `<b>超支項目 ${over.length} 項</b>`) + over.slice(0, 8).map(o => `<div style="padding-left:24px; color:#b91c1c;">• ${esc(o.txt)}</div>`).join('') + (over.length > 8 ? `<div style="padding-left:24px;">…另有 ${over.length - 8} 項</div>` : '')
                 : li('🟢', '目前沒有任何項目超支');
-            ins += spend.length ? li('💸', `<b>支出最高的項目：</b>${spend.slice(0, 3).map(x => `${esc(x.c)}${fmtMoney(x.sum)}`).join('、')}`) : li('💸', '尚無支出紀錄');
+            ins += spend.length ? li('💸', `<b>支出最高的項目：</b>${spend.slice(0, 3).map(x => `${esc(x.c)} ${fmtMoney(x.sum)}`).join('、')}`) : li('💸', '尚無支出紀錄');
             ins += li('⏳', `<b>已編列預算但尚未動用：</b>${unused.length} 項${unused.length ? '（' + unused.slice(0, 6).map(esc).join('、') + (unused.length > 6 ? '…' : '') + '）' : ''}`);
             if (TB > 900000) ins += li('⚠️', `<b>四場次預算合計超過固定總預算 ${fmtMoney(TB - 900000)}</b>`);
             document.getElementById('analysis-insights').innerHTML = ins;
@@ -1193,6 +1185,7 @@
             renderAuditLog();
         }
 
+        // ---------- 自動更新：回到畫面、或每 30 秒檢查一次 ----------
         function autoRefresh(minGap) {
             if (document.visibilityState === 'visible' && cloudLoaded && !unsaved && !saving && opsPending === 0
                 && !currentActiveGroup && Date.now() - lastLoadAt > minGap) loadDataFromCloud(false, true);
@@ -1201,7 +1194,6 @@
         setInterval(() => autoRefresh(25000), 30000);
         window.addEventListener('beforeunload', (e) => { if (unsaved || opsPending > 0) { e.preventDefault(); e.returnValue = ''; } });
 
-        // 雙向連動：將各組項目經費重新加總並對應更新場次預算與總預算
         function recalculateGroupBudgetsFromItems() {
             ['1', '2', '3', '4'].forEach(gKey => {
                 if (groupBudgetItems[gKey]) {
@@ -1423,7 +1415,7 @@
             });
 
             const newTx = transactions[transactions.length - 1];
-            newTx.id = -Date.now();
+            newTx.id = -Date.now();                                   // 暫時編號，伺服器回應後換成正式編號
             const sent = Object.assign({}, newTx); delete sent.id;
             saveAndRefresh();
             checkOverBudgetWarning(gKey, amt);
@@ -1478,7 +1470,7 @@
         }
 
         function handleFloatingSave() {
-            saveToCloud(true);
+            saveToCloud(true); // 點擊浮動按鈕手動立即同步至 Google Drive
         }
 
         function copyLineReport() {
@@ -1610,7 +1602,7 @@
             transactions.filter(t => t.group === currentActiveGroup && t.flowType !== 'income').forEach(t => {
                 actualMap[t.category] = (actualMap[t.category] || 0) + t.amount;
             });
-            renderBudgetEditTable(currentActiveGroup, actualMap);
+            renderBudgetEditTable(groupKey, actualMap);
             previewGroupBudgetSum(currentActiveGroup);
         }
 
@@ -1651,7 +1643,7 @@
 
             openGroupDetail(currentActiveGroup);
             updateCategoryOptions();
-            saveToCloud();
+            saveToCloud(); // 儲存至雲端
         }
 
         function backToMainView() {
@@ -1734,6 +1726,7 @@
             renderMyBudget();
         }
 
+        // 載入流程：先秒開本機快取，再向 Google Drive 抓最新資料
         window.addEventListener('DOMContentLoaded', () => {
             GROUP_OPTIONS_HTML = groupSelect.innerHTML;
             try {
