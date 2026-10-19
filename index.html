@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2563eb">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="聖誕節經費">
     <title>115年聯合聖誕節 - 經費動向與版本管理系統</title>
     <style>
         * {
@@ -279,6 +283,20 @@
 
         .view-section { display: none; }
         .view-section.active { display: block; }
+
+        /* ===== 雲端同步狀態 / 手機版 ===== */
+        .floating-action-bar { flex-wrap: wrap; align-items: center; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+        .sync-badge { font-size: 0.85rem; font-weight: 600; padding: 8px 12px; border-radius: 999px; cursor: pointer; user-select: none; border: 1px solid transparent; }
+        .sync-badge.ok { background: #dcfce7; color: #166534; border-color: #86efac; }
+        .sync-badge.busy { background: #e0f2fe; color: #075985; border-color: #7dd3fc; }
+        .sync-badge.err { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+        @media (max-width: 640px) {
+            body { padding: 12px 8px 130px 8px; }
+            .container { padding: 16px; border-radius: 12px; }
+            header h1 { font-size: 1.3rem; }
+            input, select, textarea { font-size: 16px; }
+            .floating-action-bar { padding-left: 12px; padding-right: 12px; gap: 8px; justify-content: space-between; }
+        }
     </style>
 </head>
 <body>
@@ -487,6 +505,7 @@
     <!-- 浮動隨畫面移動的儲存/操作列 -->
     <div class="floating-action-bar">
         <button class="btn-submit" onclick="handleFloatingSave()" style="padding: 10px 28px; font-size: 1rem;">💾 儲存至 Google Drive 雲端</button>
+        <span id="sync-badge" class="sync-badge busy" onclick="badgeClick()">⏳ 連線中…</span>
     </div>
 
     <script>
@@ -554,63 +573,153 @@
         let groupBudgetItems = allGroupBudgetItems[currentVersion];
         let transactions = allTransactions[currentVersion] || [];
 
-        // 頁面載入時，自動從 Google Drive 讀取資料
-        async function loadDataFromCloud() {
-            try {
-                let response = await fetch(GAS_API_URL);
-                let result = await response.json();
-                if (result && result.allBudgets) {
-                    allBudgets = result.allBudgets;
-                    allGroupBudgetItems = result.allGroupBudgetItems;
-                    allTransactions = result.allTransactions;
-                    currentVersion = result.currentVersion || 'original';
-                    
-                    // 重建版本選單
-                    versionSelect.innerHTML = '';
-                    Object.keys(allBudgets).forEach(k => {
-                        const opt = document.createElement('option');
-                        opt.value = k;
-                        opt.textContent = k === 'original' ? '📌 原版 (已審核)' : `📂 版本 ${k.toUpperCase()}`;
-                        versionSelect.appendChild(opt);
-                    });
-                    versionSelect.value = currentVersion;
+        // ================== Google Drive 雲端同步 (電腦 / 手機共用) ==================
+        const LS_KEY = 'xmas115_key', LS_CACHE = 'xmas115_cache', LS_VER = 'xmas115_curver';
+        let cloudRev = null;      // 雲端版本號；null = 尚未成功連線
+        let cloudLoaded = false;  // 成功讀到雲端前，禁止儲存，避免用預設資料覆蓋雲端
+        let unsaved = false, saving = false, pendingSave = false, saveTimer = null, lastLoadAt = 0;
 
-                    budgets = allBudgets[currentVersion];
-                    groupBudgetItems = allGroupBudgetItems[currentVersion];
-                    transactions = allTransactions[currentVersion] || [];
-                    
-                    recalculateGroupBudgetsFromItems();
-                    updateVersionDisplay();
-                    render();
-                    updateCategoryOptions();
-                    console.log("成功從 Google Drive 載入資料！");
+        function setSync(state, text) {
+            const el = document.getElementById('sync-badge');
+            el.className = 'sync-badge ' + state;
+            el.textContent = text;
+        }
+        function nowHM() { return new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false }); }
+        function versionLabel(k) { return k === 'original' ? '📌 原版 (已審核)' : `📂 版本 ${k.toUpperCase()}`; }
+
+        function getAccessKey(force) {
+            let k = localStorage.getItem(LS_KEY);
+            if (!k || force) {
+                k = (prompt('請輸入存取密碼（與 Apps Script 內設定相同，每台裝置只需輸入一次）：') || '').trim();
+                if (k) localStorage.setItem(LS_KEY, k); else localStorage.removeItem(LS_KEY);
+            }
+            return k;
+        }
+
+        function applyData(d) {
+            allBudgets = d.allBudgets;
+            allGroupBudgetItems = d.allGroupBudgetItems;
+            allTransactions = d.allTransactions;
+            const mine = localStorage.getItem(LS_VER);   // 每台裝置記住自己上次看的版本
+            currentVersion = (mine && allBudgets[mine]) ? mine
+                : (d.currentVersion && allBudgets[d.currentVersion]) ? d.currentVersion : 'original';
+
+            versionSelect.innerHTML = '';
+            Object.keys(allBudgets).forEach(k => {
+                const opt = document.createElement('option');
+                opt.value = k;
+                opt.textContent = versionLabel(k);
+                versionSelect.appendChild(opt);
+            });
+            versionSelect.value = currentVersion;
+
+            budgets = allBudgets[currentVersion];
+            groupBudgetItems = allGroupBudgetItems[currentVersion];
+            transactions = allTransactions[currentVersion] || [];
+
+            recalculateGroupBudgetsFromItems();
+            updateVersionDisplay();
+            render();
+            updateCategoryOptions();
+        }
+
+        function cacheLocal(rev, data) {
+            try { localStorage.setItem(LS_CACHE, JSON.stringify({ rev, data })); } catch (e) {}
+        }
+
+        // 從 Google Drive 讀取
+        async function loadDataFromCloud(manual = false, silent = false) {
+            const key = getAccessKey(false);
+            if (!key) { setSync('err', '🔒 未輸入密碼 (點此輸入)'); return; }
+            if (!silent) setSync('busy', '⏳ 讀取雲端中…');
+            try {
+                const res = await fetch(GAS_API_URL + '?action=load&key=' + encodeURIComponent(key), { cache: 'no-store' });
+                const r = await res.json();
+                if (r.ok === undefined) { setSync('err', '⚠️ Apps Script 尚未更新為新版 (點此重試)'); return; }
+                if (!r.ok) {
+                    if (r.error === 'auth') { localStorage.removeItem(LS_KEY); setSync('err', '🔒 密碼錯誤 (點此重新輸入)'); }
+                    else setSync('err', '⚠️ 雲端錯誤：' + r.error + ' (點此重試)');
+                    return;
+                }
+                lastLoadAt = Date.now();
+                if (!r.data) {                       // 雲端還沒有資料：第一次使用
+                    cloudLoaded = true; cloudRev = 0;
+                    setSync('ok', '☁️ 雲端尚無資料，編輯後會自動建立');
+                    return;
+                }
+                if (!cloudLoaded || r.rev !== cloudRev) {
+                    applyData(r.data);
+                    cacheLocal(r.rev, r.data);
+                }
+                cloudRev = r.rev; cloudLoaded = true; unsaved = false;
+                setSync('ok', '☁️ 已同步 ' + nowHM());
+            } catch (err) {
+                console.log('從雲端載入失敗：', err);
+                setSync('err', cloudLoaded ? '📴 無法連線 (點此重試)' : '📴 離線：顯示本機快取，暫時無法儲存 (點此重試)');
+            }
+        }
+
+        // 儲存到 Google Drive（一般操作自動延遲 0.8 秒合併儲存）
+        function saveToCloud(immediate = false) {
+            if (!cloudLoaded) {
+                alert('⚠️ 尚未成功連線 Google Drive，為避免覆蓋雲端資料，這次變更無法儲存。\n請點右下角狀態標籤重新連線後再操作。');
+                return;
+            }
+            unsaved = true;
+            clearTimeout(saveTimer);
+            setSync('busy', '✏️ 儲存中…');
+            saveTimer = setTimeout(() => doSave(false), immediate ? 0 : 800);
+        }
+
+        async function doSave(force) {
+            if (saving) { pendingSave = true; return; }
+            saving = true;
+            let followUp = null;
+            const data = { currentVersion, allBudgets, allGroupBudgetItems, allTransactions };
+            try {
+                const res = await fetch(GAS_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ key: getAccessKey(false), baseRev: cloudRev, force: !!force, data })
+                });
+                const r = await res.json();
+                if (r.ok) {
+                    cloudRev = r.rev; unsaved = false;
+                    cacheLocal(r.rev, data);
+                    setSync('ok', '✅ 已儲存至雲端 ' + nowHM());
+                } else if (r.error === 'conflict') {
+                    const reload = confirm('⚠️ 雲端有較新的資料（可能是另一台裝置剛更新）。\n\n【確定】＝ 載入雲端最新資料（本機這次的變更會被捨棄）\n【取消】＝ 以本機資料覆蓋雲端');
+                    if (reload) { cloudRev = -1; unsaved = false; followUp = () => loadDataFromCloud(true); }
+                    else { cloudRev = r.rev; followUp = () => doSave(true); }
+                } else if (r.error === 'auth') {
+                    localStorage.removeItem(LS_KEY);
+                    setSync('err', '🔒 密碼錯誤 (點此重新輸入)');
+                } else {
+                    setSync('err', '❌ 儲存失敗：' + r.error + ' (點此重試)');
                 }
             } catch (err) {
-                console.log("從雲端載入失敗，改用預設資料：", err);
+                setSync('err', '❌ 儲存失敗，尚有未同步變更 (點此重試)');
+            } finally {
+                saving = false;
             }
+            if (followUp) { await followUp(); }
+            else if (pendingSave) { pendingSave = false; doSave(false); }
         }
 
-        // 自動同步儲存資料至 Google Drive
-        async function saveToCloud() {
-            const exportData = {
-                currentVersion: currentVersion,
-                allBudgets: allBudgets,
-                allGroupBudgetItems: allGroupBudgetItems,
-                allTransactions: allTransactions
-            };
-
-            try {
-                let response = await fetch(GAS_API_URL, {
-                    method: "POST",
-                    mode: "no-cors",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(exportData)
-                });
-                alert('💾 資料已成功同步儲存至您的 Google 雲端硬碟！');
-            } catch (err) {
-                alert('❌ 儲存至雲端失敗：' + err.message);
-            }
+        function badgeClick() {
+            if (cloudLoaded && unsaved) { doSave(false); return; }
+            if (!localStorage.getItem(LS_KEY)) getAccessKey(true);
+            loadDataFromCloud(true);
         }
+
+        // 回到此分頁／App 時，若沒有未儲存變更就自動抓最新資料（另一台裝置的更新）
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && cloudLoaded && !unsaved && !saving
+                && !currentActiveGroup && Date.now() - lastLoadAt > 20000) {
+                loadDataFromCloud(false, true);
+            }
+        });
+        window.addEventListener('beforeunload', (e) => { if (unsaved) { e.preventDefault(); e.returnValue = ''; } });
 
         function recalculateGroupBudgetsFromItems() {
             ['1', '2', '3', '4'].forEach(gKey => {
@@ -658,6 +767,7 @@
 
         function switchVersion(ver) {
             currentVersion = ver;
+            try { localStorage.setItem(LS_VER, ver); } catch (e) {}
             budgets = allBudgets[currentVersion];
             groupBudgetItems = allGroupBudgetItems[currentVersion];
             transactions = allTransactions[currentVersion] || [];
@@ -731,6 +841,7 @@
 
             versionSelect.value = newVerKey;
             switchVersion(newVerKey);
+            saveToCloud(true);
         }
 
         function exportDataJson() {
@@ -782,6 +893,7 @@
                         updateCategoryOptions();
 
                         alert('🎉 成功匯入並還原所有資料！');
+                        saveToCloud(true);
                     } else {
                         alert('❌ 檔案格式不正確，無法匯入。');
                     }
@@ -878,7 +990,7 @@
         }
 
         function handleFloatingSave() {
-            saveToCloud(); // 點擊浮動按鈕手動強制同步至 Google Drive
+            saveToCloud(true); // 點擊浮動按鈕手動立即同步至 Google Drive
         }
 
         function copyLineReport() {
@@ -1131,8 +1243,12 @@
             updateGroupCard('group4', g4Exp, budgets.group4);
         }
 
-        // 當網頁載入完成時，自動從 Google Drive 雲端抓取最新資料
+        // 載入流程：先秒開本機快取，再向 Google Drive 抓最新資料
         window.addEventListener('DOMContentLoaded', () => {
+            try {
+                const c = JSON.parse(localStorage.getItem(LS_CACHE) || 'null');
+                if (c && c.data && c.data.allBudgets) applyData(c.data);
+            } catch (e) {}
             loadDataFromCloud();
         });
     </script>
