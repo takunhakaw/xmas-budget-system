@@ -290,6 +290,16 @@
         .sync-badge.ok { background: #dcfce7; color: #166534; border-color: #86efac; }
         .sync-badge.busy { background: #e0f2fe; color: #075985; border-color: #7dd3fc; }
         .sync-badge.err { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+        body.booting .container { visibility: hidden; }
+        body.role-group .admin-only { display: none !important; }
+        .login-overlay { position: fixed; inset: 0; background: #0f172a; z-index: 3000; display: none; align-items: center; justify-content: center; padding: 16px; }
+        .login-box { background: #fff; border-radius: 16px; padding: 24px; width: 100%; max-width: 380px; box-shadow: 0 20px 40px rgba(0,0,0,.3); }
+        .login-box h2 { margin-bottom: 6px; }
+        .login-box input { width: 100%; padding: 12px; margin: 6px 0 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 16px; }
+        .login-box .login-msg { color: #dc2626; font-size: .9rem; min-height: 1.3em; margin-bottom: 8px; font-weight: 600; }
+        .role-banner { display: none; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; padding: 10px 14px; border-radius: 10px; margin-bottom: 16px; font-weight: 600; }
+        .new-badge { background: #ef4444; color: #fff; border-radius: 999px; padding: 3px 10px; font-size: .8rem; cursor: pointer; }
+        .log-wrap { max-height: 380px; overflow: auto; }
         @media (max-width: 640px) {
             body { padding: 12px 8px 130px 8px; }
             .container { padding: 16px; border-radius: 12px; }
@@ -299,16 +309,17 @@
         }
     </style>
 </head>
-<body>
+<body class="booting">
     <div class="container">
         <header>
             <h1>115年聯合聖誕節 - 經費動向與版本管理系統</h1>
+            <div id="role-banner" class="role-banner"></div>
         </header>
 
         <!-- ==================== 總覽視圖 ==================== -->
         <div id="main-view" class="view-section active">
             <!-- 功能列區 -->
-            <section class="action-bar-section">
+            <section class="action-bar-section admin-only">
                 <div class="toolbar-grid">
                     <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 280px;">
                         <label for="version-select" style="margin-bottom: 0; white-space: nowrap; font-size: 0.9rem;">版本：</label>
@@ -329,7 +340,7 @@
             </section>
 
             <!-- 預算設定區 -->
-            <section class="budget-setting-section">
+            <section class="budget-setting-section admin-only">
                 <h2>專案預算額度設定 (<span id="current-version-title" style="color: #0284c7;">原版</span>)</h2>
                 <div class="budget-inputs">
                     <div class="form-group" style="grid-column: 1 / -1; background: #e0f2fe; padding: 12px; border-radius: 8px; border: 1px solid #bae6fd;">
@@ -345,7 +356,7 @@
             </section>
 
             <!-- 全體彙總儀表板 -->
-            <section class="dashboard">
+            <section class="dashboard admin-only">
                 <h2>全體彙總資料</h2>
                 <div class="card-group-row">
                     <div class="card income"><h3>總收入</h3><p id="total-income">NT$ 0</p></div>
@@ -355,7 +366,7 @@
             </section>
 
             <!-- 各場次動向看板 -->
-            <section class="group-dashboard">
+            <section class="group-dashboard admin-only">
                 <h2>各場次執行進度與動向 (點擊卡片查看明細與編輯項目)</h2>
                 <div class="group-cards-grid">
                     <div class="group-card" onclick="openGroupDetail('1')">
@@ -383,6 +394,82 @@
                         <p id="group4-balance" style="font-size: 0.85rem; color: #555;">剩餘: NT$ 0</p>
                     </div>
                 </div>
+            </section>
+
+            <!-- 後台管理 (僅管理員) -->
+            <section class="form-section admin-only" id="admin-panel">
+                <h2>🏦 後台管理（僅管理員可見）</h2>
+                <div style="margin-bottom: 18px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                    <label for="live-version-select" style="margin-bottom: 0; font-size: 0.9rem; font-weight: 600;">開放會計填報的版本：</label>
+                    <select id="live-version-select" onchange="changeLiveVersion(this.value)" style="max-width: 220px;"></select>
+                    <span style="font-size: 0.85rem; color: #64748b;">各組會計新增的帳目會寫入此版本；要看到他們的資料請在上方切換到同一版本。</span>
+                </div>
+                <h3 style="margin-bottom: 8px;">💰 現金流總覽（目前檢視版本）</h3>
+                <div class="table-responsive">
+                    <table style="min-width: 640px;">
+                        <thead><tr><th>場次</th><th>收入</th><th>核銷支出</th><th>預支</th><th>淨現金流</th><th>預算剩餘</th></tr></thead>
+                        <tbody id="cashflow-body"></tbody>
+                    </table>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin: 22px 0 10px; flex-wrap: wrap; gap: 8px;">
+                    <h3>📜 異動紀錄 <span id="log-new-badge" class="new-badge" style="display: none;" onclick="markLogSeen()"></span></h3>
+                    <select id="log-filter" onchange="renderAuditLog()" style="max-width: 220px;">
+                        <option value="all">全部人員</option>
+                        <option value="admin">管理員</option>
+                        <option value="1">第一場次會計</option>
+                        <option value="2">第二場次會計</option>
+                        <option value="3">第三場次會計</option>
+                        <option value="4">第四場次會計</option>
+                    </select>
+                </div>
+                <div class="table-responsive log-wrap">
+                    <table style="min-width: 640px;">
+                        <thead><tr><th>時間</th><th>人員</th><th>動作</th><th>內容</th></tr></thead>
+                        <tbody id="audit-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- 四場次總表分析 (僅管理員) -->
+            <section class="form-section admin-only" id="analysis-panel">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px;">
+                    <h2 style="margin-bottom: 0;">📊 四場次經費明細總表分析</h2>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                        <select id="analysis-metric" onchange="renderAnalysis()" style="max-width: 150px; padding: 8px;">
+                            <option value="actual">顯示：實際執行</option>
+                            <option value="budget">顯示：預算</option>
+                            <option value="remain">顯示：剩餘</option>
+                            <option value="rate">顯示：執行率</option>
+                        </select>
+                        <select id="analysis-sort" onchange="renderAnalysis()" style="max-width: 170px; padding: 8px;">
+                            <option value="default">排序：預設</option>
+                            <option value="budget-desc">預算合計 高→低</option>
+                            <option value="actual-desc">實際合計 高→低</option>
+                            <option value="remain-asc">剩餘 少→多（超支在前）</option>
+                        </select>
+                        <button class="btn-sm btn-success-sm" onclick="exportAnalysisCsv()">📥 匯出 CSV</button>
+                    </div>
+                </div>
+                <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 14px;">統計範圍：目前檢視的版本；「實際執行」＝核銷支出＋預支，不含收入。</p>
+
+                <h3 style="margin-bottom: 8px;">各場次總覽</h3>
+                <div class="table-responsive" style="margin-bottom: 22px;">
+                    <table style="min-width: 680px;">
+                        <thead><tr><th>場次</th><th>預算</th><th>實際執行</th><th>剩餘</th><th style="min-width:160px;">執行率</th><th>狀態</th></tr></thead>
+                        <tbody id="analysis-summary"></tbody>
+                    </table>
+                </div>
+
+                <h3 style="margin-bottom: 8px;">經費項目 × 場次 對照表</h3>
+                <div class="table-responsive" style="margin-bottom: 22px;">
+                    <table style="min-width: 720px;">
+                        <thead id="analysis-matrix-head"></thead>
+                        <tbody id="analysis-matrix"></tbody>
+                    </table>
+                </div>
+
+                <h3 style="margin-bottom: 8px;">重點提醒</h3>
+                <div id="analysis-insights" style="font-size: 0.92rem; line-height: 1.8;"></div>
             </section>
 
             <!-- 新增帳目表單 -->
@@ -502,9 +589,23 @@
         </div>
     </div>
 
+    <!-- 登入 -->
+    <div id="login-overlay" class="login-overlay">
+        <form id="login-form" class="login-box" onsubmit="submitLogin(); return false;">
+            <h2>🎄 115年聯合聖誕節經費</h2>
+            <p style="color:#64748b; font-size:.9rem; margin-bottom:14px;">請輸入管理員或各組會計的密碼</p>
+            <label style="font-size:.85rem; font-weight:600;">密碼</label>
+            <input type="password" id="login-pw" autocomplete="current-password" required>
+            <label style="font-size:.85rem; font-weight:600;">填報人姓名（會顯示在異動紀錄，建議填寫）</label>
+            <input type="text" id="login-name" maxlength="20" placeholder="例如：王小明">
+            <div id="login-msg" class="login-msg"></div>
+            <button type="submit" class="btn-submit" style="width:100%; padding:12px;">登入</button>
+        </form>
+    </div>
+
     <!-- 浮動隨畫面移動的儲存/操作列 -->
     <div class="floating-action-bar">
-        <button class="btn-submit" onclick="handleFloatingSave()" style="padding: 10px 28px; font-size: 1rem;">💾 儲存至 Google Drive 雲端</button>
+        <button class="btn-submit admin-only" onclick="handleFloatingSave()" style="padding: 10px 28px; font-size: 1rem;">💾 儲存至 Google Drive 雲端</button>
         <span id="sync-badge" class="sync-badge busy" onclick="badgeClick()">⏳ 連線中…</span>
     </div>
 
@@ -573,12 +674,20 @@
         let groupBudgetItems = allGroupBudgetItems[currentVersion];
         let transactions = allTransactions[currentVersion] || [];
 
-        // ================== Google Drive 雲端同步 (電腦 / 手機共用) ==================
-        const LS_KEY = 'xmas115_key', LS_CACHE = 'xmas115_cache', LS_VER = 'xmas115_curver';
-        let cloudRev = null;      // 雲端版本號；null = 尚未成功連線
-        let cloudLoaded = false;  // 成功讀到雲端前，禁止儲存，避免用預設資料覆蓋雲端
+        // ================== Google Drive 雲端同步（管理員 / 各組會計） ==================
+        const LS_KEY = 'xmas115_key', LS_NAME = 'xmas115_name', LS_CACHE = 'xmas115_cache', LS_VER = 'xmas115_curver', LS_LOGSEEN = 'xmas115_logseen';
+        const GROUP_NAME_MAP = { 'none': '全體彙總', '1': '第一場次(青年)', '2': '第二場次(松年)', '3': '第三場次(兒童)', '4': '第四場次(主場)' };
+        let myRole = null, myGroup = null;       // 'admin' | 'group'
+        let liveVersion = 'original';            // 開放會計填報的版本
+        let auditLog = [];
+        let cloudRev = null, cloudLoaded = false;
         let unsaved = false, saving = false, pendingSave = false, saveTimer = null, lastLoadAt = 0;
+        let opChain = Promise.resolve(), opsPending = 0;
+        let GROUP_OPTIONS_HTML = null;
 
+        function esc(v) {
+            return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
         function setSync(state, text) {
             const el = document.getElementById('sync-badge');
             el.className = 'sync-badge ' + state;
@@ -586,29 +695,92 @@
         }
         function nowHM() { return new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false }); }
         function versionLabel(k) { return k === 'original' ? '📌 原版 (已審核)' : `📂 版本 ${k.toUpperCase()}`; }
+        function newCode() { return 'XMAS-' + (myRole === 'group' ? 'G' + myGroup + '-' : '') + Math.floor(100 + Math.random() * 900); }
+        function fmtMoney(n) { return 'NT$ ' + Math.round(n).toLocaleString(); }
 
-        function getAccessKey(force) {
-            let k = localStorage.getItem(LS_KEY);
-            if (!k || force) {
-                k = (prompt('請輸入存取密碼（與 Apps Script 內設定相同，每台裝置只需輸入一次）：') || '').trim();
-                if (k) localStorage.setItem(LS_KEY, k); else localStorage.removeItem(LS_KEY);
+        // ---------- 登入 ----------
+        function showLogin(msg) {
+            document.body.classList.remove('booting');
+            document.getElementById('login-overlay').style.display = 'flex';
+            document.getElementById('login-msg').textContent = msg || '';
+            document.getElementById('login-name').value = localStorage.getItem(LS_NAME) || '';
+            document.getElementById('login-pw').value = '';
+        }
+        function hideLogin() { document.getElementById('login-overlay').style.display = 'none'; }
+        function submitLogin() {
+            const k = document.getElementById('login-pw').value.trim();
+            if (!k) return;
+            localStorage.setItem(LS_KEY, k);
+            localStorage.setItem(LS_NAME, document.getElementById('login-name').value.trim());
+            cloudLoaded = false; cloudRev = null;
+            document.getElementById('login-msg').textContent = '登入中…';
+            loadDataFromCloud(true);
+        }
+        function logout() {
+            if (unsaved || opsPending > 0) { if (!confirm('還有資料正在儲存，確定要登出嗎？')) return; }
+            localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_CACHE);
+            location.reload();
+        }
+
+        // ---------- 依角色調整畫面 ----------
+        function applyRoleUI() {
+            document.body.classList.remove('booting');
+            document.body.classList.toggle('role-group', myRole === 'group');
+            document.body.classList.toggle('role-admin', myRole === 'admin');
+            const name = localStorage.getItem(LS_NAME) || '';
+            const label = myRole === 'admin' ? '🛡️ 管理員（後台）' : '🧾 ' + esc(GROUP_NAME_MAP[myGroup]) + ' 會計';
+            const banner = document.getElementById('role-banner');
+            banner.style.display = 'flex';
+            banner.innerHTML = `<span>${label}${name ? '｜' + esc(name) : ''}</span>
+                <span style="display:flex; gap:8px; align-items:center;">
+                    <span id="banner-new" class="new-badge" style="display:none;" onclick="document.getElementById('admin-panel').scrollIntoView({behavior:'smooth'})"></span>
+                    <button class="btn-sm btn-warning-sm" onclick="logout()">🔓 登出</button>
+                </span>`;
+            if (GROUP_OPTIONS_HTML === null) GROUP_OPTIONS_HTML = groupSelect.innerHTML;
+            if (myRole === 'group') {
+                groupSelect.innerHTML = `<option value="${esc(myGroup)}">${esc(GROUP_NAME_MAP[myGroup])}</option>`;
+                groupSelect.value = myGroup;
+                groupSelect.disabled = true;
+            } else {
+                groupSelect.innerHTML = GROUP_OPTIONS_HTML;
+                groupSelect.disabled = false;
             }
-            return k;
+            document.getElementById('code').value = newCode();
+            updateLogBadge();
+        }
+
+        function fillLiveSelect() {
+            const sel = document.getElementById('live-version-select');
+            if (!sel) return;
+            sel.innerHTML = '';
+            Object.keys(allBudgets).forEach(k => {
+                const o = document.createElement('option');
+                o.value = k; o.textContent = versionLabel(k);
+                sel.appendChild(o);
+            });
+            sel.value = liveVersion;
+        }
+        function changeLiveVersion(v) {
+            if (myRole !== 'admin') return;
+            if (!confirm(`各組會計之後新增的帳目將寫入【${versionLabel(v)}】，確定切換嗎？`)) { fillLiveSelect(); return; }
+            liveVersion = v;
+            saveToCloud(true);
         }
 
         function applyData(d) {
+            const prevCat = categorySelect ? categorySelect.value : '';
             allBudgets = d.allBudgets;
             allGroupBudgetItems = d.allGroupBudgetItems;
             allTransactions = d.allTransactions;
-            const mine = localStorage.getItem(LS_VER);   // 每台裝置記住自己上次看的版本
-            currentVersion = (mine && allBudgets[mine]) ? mine
-                : (d.currentVersion && allBudgets[d.currentVersion]) ? d.currentVersion : 'original';
+            liveVersion = d.liveVersion && allBudgets[d.liveVersion] ? d.liveVersion : 'original';
+            const mine = localStorage.getItem(LS_VER);
+            if (myRole === 'group') currentVersion = liveVersion;
+            else currentVersion = (mine && allBudgets[mine]) ? mine : (allBudgets[liveVersion] ? liveVersion : 'original');
 
             versionSelect.innerHTML = '';
             Object.keys(allBudgets).forEach(k => {
                 const opt = document.createElement('option');
-                opt.value = k;
-                opt.textContent = versionLabel(k);
+                opt.value = k; opt.textContent = versionLabel(k);
                 versionSelect.appendChild(opt);
             });
             versionSelect.value = currentVersion;
@@ -621,105 +793,347 @@
             updateVersionDisplay();
             render();
             updateCategoryOptions();
+            if (prevCat && [...categorySelect.options].some(o => o.value === prevCat)) categorySelect.value = prevCat;
+            if (myRole === 'admin') fillLiveSelect();
+            renderAuditLog();
         }
 
-        function cacheLocal(rev, data) {
-            try { localStorage.setItem(LS_CACHE, JSON.stringify({ rev, data })); } catch (e) {}
+        function payloadData() { return { currentVersion, liveVersion, allBudgets, allGroupBudgetItems, allTransactions }; }
+        function saveCache() {
+            try { localStorage.setItem(LS_CACHE, JSON.stringify({ role: myRole, group: myGroup, rev: cloudRev, data: payloadData() })); } catch (e) {}
         }
 
-        // 從 Google Drive 讀取
+        // ---------- 讀取 ----------
         async function loadDataFromCloud(manual = false, silent = false) {
-            const key = getAccessKey(false);
-            if (!key) { setSync('err', '🔒 未輸入密碼 (點此輸入)'); return; }
+            const key = localStorage.getItem(LS_KEY);
+            if (!key) { showLogin(''); setSync('err', '🔒 請先登入'); return; }
             if (!silent) setSync('busy', '⏳ 讀取雲端中…');
             try {
                 const res = await fetch(GAS_API_URL + '?action=load&key=' + encodeURIComponent(key), { cache: 'no-store' });
                 const r = await res.json();
                 if (r.ok === undefined) { setSync('err', '⚠️ Apps Script 尚未更新為新版 (點此重試)'); return; }
                 if (!r.ok) {
-                    if (r.error === 'auth') { localStorage.removeItem(LS_KEY); setSync('err', '🔒 密碼錯誤 (點此重新輸入)'); }
-                    else setSync('err', '⚠️ 雲端錯誤：' + r.error + ' (點此重試)');
+                    if (r.error === 'auth') {
+                        localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_CACHE);
+                        cloudLoaded = false;
+                        showLogin('密碼錯誤，請重新輸入');
+                        setSync('err', '🔒 密碼錯誤');
+                    } else setSync('err', '⚠️ 雲端錯誤：' + r.error + ' (點此重試)');
                     return;
                 }
+                myRole = r.role; myGroup = r.group;
                 lastLoadAt = Date.now();
-                if (!r.data) {                       // 雲端還沒有資料：第一次使用
+                const firstTime = !cloudLoaded;
+                if (firstTime) { applyRoleUI(); hideLogin(); }
+                if (!r.data) {
                     cloudLoaded = true; cloudRev = 0;
-                    setSync('ok', '☁️ 雲端尚無資料，編輯後會自動建立');
+                    if (myRole === 'admin') {
+                        setSync('busy', '⏳ 初始化雲端資料…');
+                        await sendOp({ op: 'saveAdmin', data: payloadData() });   // 第一次：建立雲端資料
+                    } else {
+                        cloudLoaded = false;
+                        setSync('err', '⏳ 管理員尚未建立資料，請稍後 (點此重試)');
+                    }
                     return;
                 }
-                if (!cloudLoaded || r.rev !== cloudRev) {
+                if (firstTime || r.rev !== cloudRev) {
+                    auditLog = r.log || [];
                     applyData(r.data);
-                    cacheLocal(r.rev, r.data);
+                    cloudRev = r.rev;
+                    saveCache();
                 }
                 cloudRev = r.rev; cloudLoaded = true; unsaved = false;
                 setSync('ok', '☁️ 已同步 ' + nowHM());
             } catch (err) {
                 console.log('從雲端載入失敗：', err);
+                if (document.getElementById('login-overlay').style.display === 'flex') {
+                    document.getElementById('login-msg').textContent = '無法連線，請檢查網路後再試';
+                }
                 setSync('err', cloudLoaded ? '📴 無法連線 (點此重試)' : '📴 離線：顯示本機快取，暫時無法儲存 (點此重試)');
             }
         }
 
-        // 儲存到 Google Drive（一般操作自動延遲 0.8 秒合併儲存）
-        function saveToCloud(immediate = false) {
-            if (!cloudLoaded) {
-                alert('⚠️ 尚未成功連線 Google Drive，為避免覆蓋雲端資料，這次變更無法儲存。\n請點右下角狀態標籤重新連線後再操作。');
-                return;
+        // ---------- 寫入：每次異動立即送出（一筆一筆，依序） ----------
+        function sendOp(body) {
+            if (!cloudLoaded && body.op !== 'saveAdmin') {
+                alert('⚠️ 尚未連上雲端，這次變更無法儲存。請點右下角狀態標籤重新連線。');
+                return Promise.resolve(null);
             }
-            unsaved = true;
-            clearTimeout(saveTimer);
-            setSync('busy', '✏️ 儲存中…');
-            saveTimer = setTimeout(() => doSave(false), immediate ? 0 : 800);
+            opsPending++;
+            setSync('busy', '⏳ 儲存中…');
+            const p = opChain.then(() => postOp(body));
+            opChain = p.catch(() => {});
+            return p;
         }
 
-        async function doSave(force) {
-            if (saving) { pendingSave = true; return; }
-            saving = true;
-            let followUp = null;
-            const data = { currentVersion, allBudgets, allGroupBudgetItems, allTransactions };
+        async function postOp(body) {
             try {
                 const res = await fetch(GAS_API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({ key: getAccessKey(false), baseRev: cloudRev, force: !!force, data })
+                    body: JSON.stringify(Object.assign({ key: localStorage.getItem(LS_KEY), who: localStorage.getItem(LS_NAME) || '' }, body))
                 });
                 const r = await res.json();
-                if (r.ok) {
-                    cloudRev = r.rev; unsaved = false;
-                    cacheLocal(r.rev, data);
-                    setSync('ok', '✅ 已儲存至雲端 ' + nowHM());
-                } else if (r.error === 'conflict') {
-                    const reload = confirm('⚠️ 雲端有較新的資料（可能是另一台裝置剛更新）。\n\n【確定】＝ 載入雲端最新資料（本機這次的變更會被捨棄）\n【取消】＝ 以本機資料覆蓋雲端');
-                    if (reload) { cloudRev = -1; unsaved = false; followUp = () => loadDataFromCloud(true); }
-                    else { cloudRev = r.rev; followUp = () => doSave(true); }
-                } else if (r.error === 'auth') {
-                    localStorage.removeItem(LS_KEY);
-                    setSync('err', '🔒 密碼錯誤 (點此重新輸入)');
+                if (r.ok) { onServerState(r); return r; }
+                if (r.error === 'auth') {
+                    localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_CACHE);
+                    showLogin('密碼已失效，請重新登入');
+                    setSync('err', '🔒 請重新登入');
                 } else {
-                    setSync('err', '❌ 儲存失敗：' + r.error + ' (點此重試)');
+                    alert('❌ 儲存失敗（' + r.error + '），系統將重新讀取雲端資料。');
+                    cloudRev = -1; setTimeout(() => loadDataFromCloud(true, true), 300);
+                    setSync('err', '❌ 儲存失敗');
                 }
+                return null;
             } catch (err) {
-                setSync('err', '❌ 儲存失敗，尚有未同步變更 (點此重試)');
+                setSync('err', '❌ 儲存失敗，請檢查網路 (點此重新讀取)');
+                cloudRev = -1;
+                return null;
             } finally {
-                saving = false;
+                opsPending--;
             }
-            if (followUp) { await followUp(); }
-            else if (pendingSave) { pendingSave = false; doSave(false); }
+        }
+
+        function onServerState(r) {
+            cloudRev = r.rev; cloudLoaded = true;
+            if (r.log) auditLog = r.log;
+            if (r.data && opsPending <= 1) {            // 還有排隊中的操作時，等最後一筆回應再更新畫面
+                allTransactions = r.data.allTransactions;
+                if (myRole === 'admin' && r.data.liveVersion) { liveVersion = r.data.liveVersion; fillLiveSelect(); }
+                transactions = allTransactions[currentVersion] || [];
+                render();
+                renderAuditLog();
+                saveCache();
+            }
+            setSync('ok', '✅ 已儲存至雲端 ' + nowHM());
+        }
+
+        // 管理員：預算項目 / 版本 / 開放填報版本（稍微合併後送出）
+        function saveToCloud(immediate = false) {
+            if (myRole !== 'admin') return;
+            if (!cloudLoaded) { alert('⚠️ 尚未連上雲端，這次變更無法儲存。請點右下角狀態標籤重新連線。'); return; }
+            unsaved = true;
+            clearTimeout(saveTimer);
+            setSync('busy', '✏️ 儲存中…');
+            saveTimer = setTimeout(doSaveAdmin, immediate ? 0 : 600);
+        }
+        async function doSaveAdmin() {
+            if (saving) { pendingSave = true; return; }
+            saving = true;
+            try { const r = await sendOp({ op: 'saveAdmin', data: payloadData() }); if (r) unsaved = false; }
+            finally { saving = false; }
+            if (pendingSave) { pendingSave = false; doSaveAdmin(); }
         }
 
         function badgeClick() {
-            if (cloudLoaded && unsaved) { doSave(false); return; }
-            if (!localStorage.getItem(LS_KEY)) getAccessKey(true);
+            if (cloudLoaded && unsaved && myRole === 'admin') { doSaveAdmin(); return; }
+            cloudRev = (cloudLoaded ? -1 : cloudRev);
             loadDataFromCloud(true);
         }
 
-        // 回到此分頁／App 時，若沒有未儲存變更就自動抓最新資料（另一台裝置的更新）
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && cloudLoaded && !unsaved && !saving
-                && !currentActiveGroup && Date.now() - lastLoadAt > 20000) {
-                loadDataFromCloud(false, true);
+        // ---------- 後台：現金流 / 異動紀錄 ----------
+        function renderCashflow() {
+            const tb = document.getElementById('cashflow-body');
+            if (!tb || myRole !== 'admin') return;
+            const keys = ['1', '2', '3', '4', 'none'];
+            const rows = {}; keys.forEach(k => rows[k] = { inc: 0, exp: 0, adv: 0 });
+            transactions.forEach(t => {
+                const r = rows[t.group]; if (!r) return;
+                if (t.flowType === 'income') r.inc += t.amount;
+                else if (t.flowType === 'advance') r.adv += t.amount;
+                else r.exp += t.amount;
+            });
+            const bud = { '1': budgets.group1, '2': budgets.group2, '3': budgets.group3, '4': budgets.group4, 'none': null };
+            const T = { inc: 0, exp: 0, adv: 0, bud: 0, remain: 0 };
+            const line = (name, r, b, bold) => {
+                const net = r.inc - r.exp - r.adv;
+                const remain = b === null ? null : b - r.exp - r.adv;
+                return `<tr style="${bold ? 'font-weight:bold; background:#f1f5f9;' : ''}">
+                    <td>${name}</td><td style="color:#059669;">${fmtMoney(r.inc)}</td><td>${fmtMoney(r.exp)}</td><td style="color:#d97706;">${fmtMoney(r.adv)}</td>
+                    <td style="color:${net < 0 ? '#dc2626' : '#059669'}; font-weight:bold;">${fmtMoney(net)}</td>
+                    <td style="color:${remain !== null && remain < 0 ? '#dc2626' : '#1e293b'};">${remain === null ? '-' : fmtMoney(remain)}</td></tr>`;
+            };
+            let html = '';
+            keys.forEach(k => {
+                const r = rows[k];
+                T.inc += r.inc; T.exp += r.exp; T.adv += r.adv;
+                if (bud[k] !== null) { T.bud += bud[k]; }
+                html += line(esc(GROUP_NAME_MAP[k]), r, bud[k], false);
+            });
+            html += line('合計', T, T.bud, true);
+            tb.innerHTML = html;
+        }
+
+        // ---------- 後台：四場次總表分析 ----------
+        const A_GROUPS = ['1', '2', '3', '4'];
+        const A_SHORT = { '1': '青年場', '2': '松年場', '3': '兒童場', '4': '主場' };
+
+        function buildAnalysis() {
+            const cats = [], seen = {}, M = {};
+            const ensure = c => {
+                if (!seen[c]) { seen[c] = 1; cats.push(c); M[c] = {}; A_GROUPS.forEach(g => M[c][g] = { b: null, a: 0 }); }
+            };
+            A_GROUPS.forEach(g => (groupBudgetItems[g] || []).forEach(i => {
+                ensure(i.category);
+                M[i.category][g].b = (M[i.category][g].b || 0) + (parseFloat(i.budget) || 0);
+            }));
+            transactions.forEach(t => {
+                if (t.flowType === 'income' || A_GROUPS.indexOf(t.group) < 0) return;
+                ensure(t.category);
+                M[t.category][t.group].a += t.amount;
+            });
+            const rowTotal = c => A_GROUPS.reduce((o, g) => ({ b: o.b + (M[c][g].b || 0), a: o.a + M[c][g].a }), { b: 0, a: 0 });
+            const sort = document.getElementById('analysis-sort').value;
+            if (sort !== 'default') {
+                const key = c => { const t = rowTotal(c); return sort === 'budget-desc' ? -t.b : sort === 'actual-desc' ? -t.a : (t.b - t.a); };
+                cats.sort((x, y) => key(x) - key(y));
             }
-        });
-        window.addEventListener('beforeunload', (e) => { if (unsaved) { e.preventDefault(); e.returnValue = ''; } });
+            const G = {}; A_GROUPS.forEach(g => G[g] = { b: 0, a: 0 });
+            cats.forEach(c => A_GROUPS.forEach(g => { G[g].b += M[c][g].b || 0; G[g].a += M[c][g].a; }));
+            return { cats, M, G, rowTotal };
+        }
+
+        function rateColor(r) { return r > 1 ? '#dc2626' : r > 0.75 ? '#d97706' : '#059669'; }
+
+        function renderAnalysis() {
+            const sumBody = document.getElementById('analysis-summary');
+            if (!sumBody || myRole !== 'admin') return;
+            const { cats, M, G, rowTotal } = buildAnalysis();
+            const metric = document.getElementById('analysis-metric').value;
+
+            // 1. 各場次總覽
+            let TB = 0, TA = 0, html = '';
+            A_GROUPS.forEach(g => {
+                const b = G[g].b, a = G[g].a, rem = b - a, rate = b > 0 ? a / b : (a > 0 ? 9.99 : 0);
+                TB += b; TA += a;
+                const status = rem < 0 ? '<span style="color:#dc2626;font-weight:bold;">⚠️ 超支</span>' : a === 0 ? '<span style="color:#64748b;">尚未動用</span>' : '<span style="color:#059669;">正常</span>';
+                html += `<tr><td style="font-weight:600;">${esc(GROUP_NAME_MAP[g])}</td><td>${fmtMoney(b)}</td><td>${fmtMoney(a)}</td>
+                    <td style="color:${rem < 0 ? '#dc2626' : '#1e293b'}; font-weight:bold;">${fmtMoney(rem)}</td>
+                    <td><div style="display:flex; align-items:center; gap:8px;"><div style="flex:1; background:#e2e8f0; border-radius:99px; height:10px; overflow:hidden;"><div style="width:${Math.min(rate, 1) * 100}%; height:100%; background:${rateColor(rate)};"></div></div><span style="min-width:48px; font-weight:bold; color:${rateColor(rate)};">${b > 0 ? Math.round(rate * 100) + '%' : '-'}</span></div></td>
+                    <td>${status}</td></tr>`;
+            });
+            const TR = TB > 0 ? TA / TB : 0;
+            html += `<tr style="font-weight:bold; background:#f1f5f9;"><td>四場次合計</td><td>${fmtMoney(TB)}</td><td>${fmtMoney(TA)}</td>
+                <td style="color:${TB - TA < 0 ? '#dc2626' : '#1e293b'};">${fmtMoney(TB - TA)}</td><td style="color:${rateColor(TR)};">${Math.round(TR * 100)}%</td>
+                <td style="font-weight:normal; font-size:.85rem;">固定總預算 ${fmtMoney(900000)}，尚未分配 ${fmtMoney(900000 - TB)}</td></tr>`;
+            sumBody.innerHTML = html;
+
+            // 2. 項目 × 場次
+            const metricName = { actual: '實際執行', budget: '預算', remain: '剩餘', rate: '執行率' }[metric];
+            document.getElementById('analysis-matrix-head').innerHTML =
+                `<tr><th>經費項目（${metricName}）</th>${A_GROUPS.map(g => `<th>${A_SHORT[g]}</th>`).join('')}<th>合計</th></tr>`;
+            const cell = (b, a) => {
+                const hasB = b !== null && b !== undefined;
+                if (!hasB && a === 0) return '<td style="color:#cbd5e1;">-</td>';
+                if (metric === 'budget') return `<td>${hasB ? fmtMoney(b) : '-'}</td>`;
+                if (metric === 'actual') return `<td ${!hasB ? 'style="color:#dc2626;" title="預算外項目"' : ''}>${fmtMoney(a)}</td>`;
+                if (metric === 'remain') { const r = (b || 0) - a; return `<td style="color:${r < 0 ? '#dc2626' : '#1e293b'};">${fmtMoney(r)}</td>`; }
+                if (!b) return a > 0 ? `<td style="color:#dc2626;">預算外</td>` : '<td style="color:#cbd5e1;">-</td>';
+                const r = a / b; return `<td style="color:${rateColor(r)}; font-weight:600;">${Math.round(r * 100)}%</td>`;
+            };
+            let mh = '';
+            cats.forEach(c => {
+                const t = rowTotal(c);
+                mh += `<tr><td style="font-weight:600;">${esc(c)}</td>${A_GROUPS.map(g => cell(M[c][g].b, M[c][g].a)).join('')}${cell(t.b, t.a).replace('<td', '<td style="font-weight:bold;background:#f8fafc;"').replace('style="font-weight:bold;background:#f8fafc;" style=', 'style=')}</tr>`;
+            });
+            mh += `<tr style="font-weight:bold; background:#f1f5f9;"><td>合計</td>${A_GROUPS.map(g => cell(G[g].b, G[g].a)).join('')}${cell(TB, TA)}</tr>`;
+            document.getElementById('analysis-matrix').innerHTML = mh || '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">尚無資料</td></tr>';
+
+            // 3. 重點提醒
+            const over = [], unused = [], spend = [];
+            cats.forEach(c => {
+                let sum = 0;
+                A_GROUPS.forEach(g => {
+                    const b = M[c][g].b, a = M[c][g].a; sum += a;
+                    if (a > (b || 0) && a > 0) over.push({ txt: `${A_SHORT[g]}「${c}」${b === null ? '（預算外項目）' : `預算 ${fmtMoney(b)}`}，已執行 ${fmtMoney(a)}，超支 ${fmtMoney(a - (b || 0))}`, v: a - (b || 0) });
+                    if (b > 0 && a === 0) unused.push(`${A_SHORT[g]}「${c}」`);
+                });
+                if (sum > 0) spend.push({ c, sum });
+            });
+            over.sort((x, y) => y.v - x.v);
+            spend.sort((x, y) => y.sum - x.sum);
+            const li = (icon, t) => `<div>${icon} ${t}</div>`;
+            let ins = '';
+            ins += over.length ? li('🔴', `<b>超支項目 ${over.length} 項</b>`) + over.slice(0, 8).map(o => `<div style="padding-left:24px; color:#b91c1c;">• ${esc(o.txt)}</div>`).join('') + (over.length > 8 ? `<div style="padding-left:24px;">…另有 ${over.length - 8} 項</div>` : '')
+                : li('🟢', '目前沒有任何項目超支');
+            ins += spend.length ? li('💸', `<b>支出最高的項目：</b>${spend.slice(0, 3).map(x => `${esc(x.c)} ${fmtMoney(x.sum)}`).join('、')}`) : li('💸', '尚無支出紀錄');
+            ins += li('⏳', `<b>已編列預算但尚未動用：</b>${unused.length} 項${unused.length ? '（' + unused.slice(0, 6).map(esc).join('、') + (unused.length > 6 ? '…' : '') + '）' : ''}`);
+            if (TB > 900000) ins += li('⚠️', `<b>四場次預算合計超過固定總預算 ${fmtMoney(TB - 900000)}</b>`);
+            document.getElementById('analysis-insights').innerHTML = ins;
+        }
+
+        function exportAnalysisCsv() {
+            const { cats, M, G, rowTotal } = buildAnalysis();
+            const q = v => '"' + String(v).replace(/"/g, '""') + '"';
+            const head = ['經費項目'];
+            A_GROUPS.forEach(g => head.push(A_SHORT[g] + '預算', A_SHORT[g] + '實際', A_SHORT[g] + '剩餘'));
+            head.push('合計預算', '合計實際', '合計剩餘', '執行率');
+            const lines = [head.map(q).join(',')];
+            const mk = (name, get) => {
+                const row = [name]; let tb = 0, ta = 0;
+                A_GROUPS.forEach(g => { const { b, a } = get(g); row.push(b, a, b - a); tb += b; ta += a; });
+                row.push(tb, ta, tb - ta, tb > 0 ? Math.round(ta / tb * 100) + '%' : '');
+                return row.map(q).join(',');
+            };
+            cats.forEach(c => lines.push(mk(c, g => ({ b: M[c][g].b || 0, a: M[c][g].a }))));
+            lines.push(mk('合計', g => G[g]));
+            const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `115聖誕節_四場次經費總表_${new Date().toISOString().slice(0, 10)}.csv`;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        }
+
+        function logWho(l) {
+            const nm = l.who ? '（' + l.who + '）' : '';
+            return l.role === 'admin' ? '管理員' + nm : (GROUP_NAME_MAP[l.group] || '') + '會計' + nm;
+        }
+        function renderAuditLog() {
+            const tb = document.getElementById('audit-body');
+            if (!tb || myRole !== 'admin') return;
+            const f = document.getElementById('log-filter').value;
+            const rows = auditLog.slice().reverse().filter(l => f === 'all' || (f === 'admin' ? l.role === 'admin' : (l.role === 'group' && l.group === f)));
+            const seen = Number(localStorage.getItem(LS_LOGSEEN) || 0);
+            tb.innerHTML = rows.slice(0, 200).map(l => {
+                const isDel = l.action.indexOf('刪除') === 0;
+                const fresh = l.role === 'group' && l.id > seen;
+                return `<tr style="${fresh ? 'background:#fef9c3;' : ''}">
+                    <td style="white-space:nowrap;">${esc(new Date(l.t).toLocaleString('zh-TW', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }))}</td>
+                    <td style="white-space:nowrap;">${esc(logWho(l))}</td>
+                    <td style="font-weight:bold; white-space:nowrap; color:${isDel ? '#dc2626' : '#0369a1'};">${esc(l.action)}</td>
+                    <td>${esc(l.detail)}</td></tr>`;
+            }).join('') || '<tr><td colspan="4" style="text-align:center; color:#94a3b8;">尚無異動紀錄</td></tr>';
+            updateLogBadge();
+        }
+        function unseenCount() {
+            const seen = Number(localStorage.getItem(LS_LOGSEEN) || 0);
+            return auditLog.filter(l => l.role === 'group' && l.id > seen).length;
+        }
+        function updateLogBadge() {
+            if (myRole !== 'admin') return;
+            const n = unseenCount();
+            ['log-new-badge', 'banner-new'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.style.display = n > 0 ? 'inline-block' : 'none';
+                el.textContent = id === 'banner-new' ? `🔔 ${n} 筆會計新異動` : `${n} 筆新異動（點此標示已讀）`;
+            });
+        }
+        function markLogSeen() {
+            const max = auditLog.reduce((m, l) => Math.max(m, l.id), 0);
+            localStorage.setItem(LS_LOGSEEN, String(max));
+            renderAuditLog();
+        }
+
+        // ---------- 自動更新：回到畫面、或每 30 秒檢查一次 ----------
+        function autoRefresh(minGap) {
+            if (document.visibilityState === 'visible' && cloudLoaded && !unsaved && !saving && opsPending === 0
+                && !currentActiveGroup && Date.now() - lastLoadAt > minGap) loadDataFromCloud(false, true);
+        }
+        document.addEventListener('visibilitychange', () => autoRefresh(10000));
+        setInterval(() => autoRefresh(25000), 30000);
+        window.addEventListener('beforeunload', (e) => { if (unsaved || opsPending > 0) { e.preventDefault(); e.returnValue = ''; } });
 
         function recalculateGroupBudgetsFromItems() {
             ['1', '2', '3', '4'].forEach(gKey => {
@@ -747,7 +1161,7 @@
         const versionSelect = document.getElementById('version-select');
 
         document.getElementById('date').valueAsDate = new Date();
-        document.getElementById('code').value = 'XMAS-' + Math.floor(100 + Math.random() * 900);
+        document.getElementById('code').value = newCode();
 
         function handleFlowTypeChange() {
             const isIncome = flowTypeSelect.value === 'income';
@@ -841,6 +1255,7 @@
 
             versionSelect.value = newVerKey;
             switchVersion(newVerKey);
+            fillLiveSelect();
             saveToCloud(true);
         }
 
@@ -893,7 +1308,7 @@
                         updateCategoryOptions();
 
                         alert('🎉 成功匯入並還原所有資料！');
-                        saveToCloud(true);
+                        if (myRole === 'admin') sendOp({ op: 'importAll', data: payloadData() });
                     } else {
                         alert('❌ 檔案格式不正確，無法匯入。');
                     }
@@ -940,12 +1355,16 @@
                 note: document.getElementById('note').value
             });
 
+            const newTx = transactions[transactions.length - 1];
+            newTx.id = -Date.now();                                   // 暫時編號，伺服器回應後換成正式編號
+            const sent = Object.assign({}, newTx); delete sent.id;
             saveAndRefresh();
             checkOverBudgetWarning(gKey, amt);
+            sendOp({ op: 'addTx', version: currentVersion, tx: sent });
 
             form.reset();
             document.getElementById('date').valueAsDate = new Date();
-            document.getElementById('code').value = 'XMAS-' + Math.floor(100 + Math.random() * 900);
+            document.getElementById('code').value = newCode();
             handleFlowTypeChange();
             updateFormRemainHint();
         });
@@ -961,7 +1380,7 @@
             });
 
             let warnings = [];
-            if (totalExp > 900000) {
+            if (myRole !== 'group' && totalExp > 900000) {
                 warnings.push(`⚠️ 柔性警示：專案總支出 (NT$ ${totalExp.toLocaleString()}) 已超出固定總預算 (NT$ 900,000)！`);
             }
             if (gKey !== 'none' && gKey in gExp) {
@@ -980,13 +1399,15 @@
             allTransactions[currentVersion] = transactions;
             render();
             if (currentActiveGroup) openGroupDetail(currentActiveGroup);
-            saveToCloud(); // 自動儲存至雲端
         }
 
         function deleteTransaction(id) {
+            if (id < 0) { alert('這筆資料還在儲存中，請稍候幾秒再刪除。'); return; }
+            if (!confirm('確定刪除這筆紀錄？（刪除動作會留在異動紀錄中）')) return;
             transactions = transactions.filter(t => t.id !== id);
             saveAndRefresh();
             updateFormRemainHint();
+            sendOp({ op: 'delTx', id: id, version: currentVersion });
         }
 
         function handleFloatingSave() {
@@ -1056,11 +1477,11 @@
                 let remain = row.budget - actual;
                 let tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td><input type="text" value="${row.category}" class="edit-cat" data-index="${index}" style="padding: 6px;"></td>
+                    <td><input type="text" value="${esc(row.category)}" class="edit-cat" data-index="${index}" style="padding: 6px;"></td>
                     <td><input type="number" value="${row.budget}" class="edit-budget" data-index="${index}" min="0" style="padding: 6px;" oninput="previewGroupBudgetSum('${groupKey}')"></td>
                     <td style="font-weight: bold;">NT$ ${actual.toLocaleString()}</td>
                     <td style="color: ${remain < 0 ? '#ef4444' : '#10b981'}; font-weight: bold;">NT$ ${remain.toLocaleString()}</td>
-                    <td><input type="text" value="${row.note}" class="edit-note" data-index="${index}" style="padding: 6px;"></td>
+                    <td><input type="text" value="${esc(row.note)}" class="edit-note" data-index="${index}" style="padding: 6px;"></td>
                     <td><button class="btn-delete" onclick="removeBudgetItem('${groupKey}', ${index})">刪除</button></td>
                 `;
                 budgetComparisonList.appendChild(tr);
@@ -1204,15 +1625,15 @@
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td style="font-weight: 600;">${t.code}</td>
-                    <td>${t.date}</td>
+                    <td style="font-weight: 600;">${esc(t.code)}</td>
+                    <td>${esc(t.date)}</td>
                     <td style="color: ${fColor}; font-weight: bold;">${fText}</td>
                     <td>${gText}</td>
-                    <td>${t.category}</td>
-                    <td><span style="background: #f1f5f9; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem;">${t.receiptType}</span></td>
+                    <td>${esc(t.category)}</td>
+                    <td><span style="background: #f1f5f9; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem;">${esc(t.receiptType)}</span></td>
                     <td>NT$ ${t.amount.toLocaleString()}</td>
-                    <td style="color: ${sColor}; font-weight: bold;">${t.statusCheck}</td>
-                    <td>${t.note || '-'}</td>
+                    <td style="color: ${sColor}; font-weight: bold;">${esc(t.statusCheck)}</td>
+                    <td>${esc(t.note || '-')}</td>
                     <td><button class="btn-delete" onclick="deleteTransaction(${t.id})">刪除</button></td>
                 `;
                 transactionList.appendChild(tr);
@@ -1241,13 +1662,20 @@
             updateGroupCard('group2', g2Exp, budgets.group2);
             updateGroupCard('group3', g3Exp, budgets.group3);
             updateGroupCard('group4', g4Exp, budgets.group4);
+            renderCashflow();
+            renderAnalysis();
         }
 
         // 載入流程：先秒開本機快取，再向 Google Drive 抓最新資料
         window.addEventListener('DOMContentLoaded', () => {
+            GROUP_OPTIONS_HTML = groupSelect.innerHTML;
             try {
                 const c = JSON.parse(localStorage.getItem(LS_CACHE) || 'null');
-                if (c && c.data && c.data.allBudgets) applyData(c.data);
+                if (c && c.data && c.data.allBudgets && localStorage.getItem(LS_KEY)) {
+                    myRole = c.role; myGroup = c.group;
+                    applyRoleUI();
+                    applyData(c.data);
+                }
             } catch (e) {}
             loadDataFromCloud();
         });
