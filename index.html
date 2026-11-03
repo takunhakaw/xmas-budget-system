@@ -497,6 +497,37 @@
             <!-- 新增帳目表單 -->
             <section class="form-section">
                 <h2>新增帳目與核銷紀錄</h2>
+                
+                <!-- 💡 憑證核銷與報帳重要說明區塊 -->
+                <div style="background: #fffbeb; border: 2px solid #f59e0b; padding: 18px; border-radius: 12px; margin-bottom: 20px; font-size: 0.95rem; color: #92400e; line-height: 1.7; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+                    <h3 style="margin-bottom: 10px; font-size: 1.1rem; color: #b45309; display: flex; align-items: center; gap: 8px;">
+                        <span>🚨</span> <strong>【重要】憑證核銷、發票規範與報帳注意事項</strong>
+                    </h3>
+                    
+                    <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; color: #991b1b; font-weight: bold;">
+                        ⚠️ 若發票不符合計畫核銷憑證，則不予以報帳。<span style="text-decoration: underline;">這非常重要，請務必嚴格遵守！</span>
+                    </div>
+
+                    <div style="margin-bottom: 12px; font-weight: bold; color: #1e293b; background: #f1f5f9; padding: 10px 14px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                        📌 本次計畫統一編號與抬頭資訊：<br>
+                        • 統一編號：<span style="color: #2563eb; font-size: 1.05rem;">73769083</span><br>
+                        • 抬頭：<span style="color: #2563eb; font-size: 1.05rem;">財團法人台灣基督長老教會泰雅爾中會奎輝教會</span>
+                    </div>
+
+                    <ul style="padding-left: 20px; margin-bottom: 14px;">
+                        <li><strong>電子發票、三聯發票說明：</strong>請務必打上上述之統一編號（73769083）與正確抬頭，並附上完整消費明細。</li>
+                        <li><strong>免用統一發票收據備註：</strong>僅需填寫商品明細、價格與日期，其餘欄位由大會會計填寫。</li>
+                        <li><strong>審核狀態說明：</strong>所有核銷資訊送出後的「狀態欄位」，預設皆為 <span style="color: #d97706; font-weight: bold;">⚠️ 待補件/需確認</span>（橘體字）。經大會會計確認無誤後，將會更新顯示為 <span style="color: #059669; font-weight: bold;">✓ 正確相符</span>（綠字體）。</li>
+                    </ul>
+
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; border-top: 1px solid #fde68a; padding-top: 12px;">
+                        <span>💡 若有任何發票取得之問題，請聯繫達昆執事協助。</span>
+                        <a href="https://line.me/ti/p/_xbsS4lFls" target="_blank" style="background: #06c755; color: #fff; padding: 8px 16px; border-radius: 8px; font-weight: bold; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                            💬 聯繫達昆執事 (LINE)
+                        </a>
+                    </div>
+                </div>
+
                 <div id="form-group-remain-hint" style="background: #f1f5f9; padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-weight: 600; color: #334155; font-size: 0.95rem; border-left: 4px solid #3b82f6;">
                     💡 請選擇場次歸屬以查看該場次目前的剩餘經費額度。
                 </div>
@@ -537,8 +568,8 @@
                         <div class="form-group"><label>金額</label><input type="number" id="amount" required min="0"></div>
                         <div class="form-group"><label>審核狀態</label>
                             <select id="status-check">
-                                <option value="正確相符" selected>✓ 正確相符</option>
-                                <option value="待補件/需確認">⚠️ 待補件 / 需確認</option>
+                                <option value="正確相符">✓ 正確相符</option>
+                                <option value="待補件/需確認" selected>⚠️ 待補件 / 需確認</option>
                                 <option value="金額有誤">❌ 金額有誤</option>
                             </select>
                         </div>
@@ -706,11 +737,11 @@
         let groupBudgetItems = allGroupBudgetItems[currentVersion];
         let transactions = allTransactions[currentVersion] || [];
 
-        // ================== Google Drive 雲端同步（管理員 / 各組會計） ==================
+        // ================== Google Drive 雲端同步 ==================
         const LS_KEY = 'xmas115_key', LS_PW = 'xmas115_pw', LS_NAME = 'xmas115_name', LS_CACHE = 'xmas115_cache', LS_VER = 'xmas115_curver', LS_LOGSEEN = 'xmas115_logseen';
         const GROUP_NAME_MAP = { 'none': '全體彙總', '1': '第一場次(青年)', '2': '第二場次(松年)', '3': '第三場次(兒童)', '4': '第四場次(主場)' };
-        let myRole = null, myGroup = null;       // 'admin' | 'group'
-        let liveVersion = 'original';            // 開放會計填報的版本
+        let myRole = null, myGroup = null;
+        let liveVersion = 'original';
         let auditLog = [];
         let cloudRev = null, cloudLoaded = false;
         let unsaved = false, saving = false, pendingSave = false, saveTimer = null, lastLoadAt = 0;
@@ -1194,7 +1225,7 @@
             if (!tx) return;
             tx.statusCheck = newStatus;
             saveAndRefresh();
-            sendOp({ op: 'updateTxStatus', id: id, version: currentVersion, statusCheck: newStatus });
+            sendOp({ op: 'updateStatus', id: id, version: currentVersion, statusCheck: newStatus });
         }
 
         // ---------- 自動更新 ----------
