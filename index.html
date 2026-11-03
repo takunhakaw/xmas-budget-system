@@ -717,7 +717,7 @@
         let opChain = Promise.resolve(), opsPending = 0;
         let GROUP_OPTIONS_HTML = null;
 
-        // 身分識別（無密碼）：'admin' 或場次編號 '1'~'4'
+        // 身分識別（支援管理員與各組會計驗證）
         function authParams() {
             const k = localStorage.getItem(LS_KEY) || '';
             return k === 'admin'
@@ -1631,7 +1631,7 @@
             transactions.filter(t => t.group === currentActiveGroup && t.flowType !== 'income').forEach(t => {
                 actualMap[t.category] = (actualMap[t.category] || 0) + t.amount;
             });
-            renderBudgetEditTable(groupKey, actualMap);
+            renderBudgetEditTable(currentActiveGroup, actualMap);
             previewGroupBudgetSum(currentActiveGroup);
         }
 
