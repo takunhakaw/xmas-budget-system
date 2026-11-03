@@ -615,11 +615,21 @@
     <div id="login-overlay" class="login-overlay">
         <form id="login-form" class="login-box" onsubmit="submitLogin(); return false;">
             <h2>🎄 115年聯合聖誕節經費</h2>
-            <p style="color:#64748b; font-size:.9rem; margin-bottom:14px;">請輸入管理員或各組會計的密碼</p>
-            <label style="font-size:.85rem; font-weight:600;">密碼</label>
-            <input type="password" id="login-pw" autocomplete="current-password" required>
-            <label style="font-size:.85rem; font-weight:600;">填報人姓名（會顯示在異動紀錄，建議填寫）</label>
-            <input type="text" id="login-name" maxlength="20" placeholder="例如：王小明">
+            <p style="color:#64748b; font-size:.9rem; margin-bottom:14px;">各組會計選擇場次並填寫姓名即可；管理員需輸入密碼</p>
+            <label style="font-size:.85rem; font-weight:600;">身分</label>
+            <select id="login-role" style="margin: 6px 0 12px;" onchange="toggleLoginPw()">
+                <option value="admin">🛡️ 管理員（後台）</option>
+                <option value="1">🧾 第一場次(青年) 會計</option>
+                <option value="2">🧾 第二場次(松年) 會計</option>
+                <option value="3">🧾 第三場次(兒童) 會計</option>
+                <option value="4">🧾 第四場次(主場) 會計</option>
+            </select>
+            <div id="login-pw-wrap">
+                <label style="font-size:.85rem; font-weight:600;">管理員密碼</label>
+                <input type="password" id="login-pw" autocomplete="current-password">
+            </div>
+            <label style="font-size:.85rem; font-weight:600;">填報人姓名（會顯示在異動紀錄）</label>
+            <input type="text" id="login-name" maxlength="20" placeholder="例如：王小明" required>
             <div id="login-msg" class="login-msg"></div>
             <button type="submit" class="btn-submit" style="width:100%; padding:12px;">登入</button>
         </form>
@@ -697,7 +707,7 @@
         let transactions = allTransactions[currentVersion] || [];
 
         // ================== Google Drive 雲端同步（管理員 / 各組會計） ==================
-        const LS_KEY = 'xmas115_key', LS_NAME = 'xmas115_name', LS_CACHE = 'xmas115_cache', LS_VER = 'xmas115_curver', LS_LOGSEEN = 'xmas115_logseen';
+        const LS_KEY = 'xmas115_key', LS_PW = 'xmas115_pw', LS_NAME = 'xmas115_name', LS_CACHE = 'xmas115_cache', LS_VER = 'xmas115_curver', LS_LOGSEEN = 'xmas115_logseen';
         const GROUP_NAME_MAP = { 'none': '全體彙總', '1': '第一場次(青年)', '2': '第二場次(松年)', '3': '第三場次(兒童)', '4': '第四場次(主場)' };
         let myRole = null, myGroup = null;       // 'admin' | 'group'
         let liveVersion = 'original';            // 開放會計填報的版本
@@ -707,6 +717,17 @@
         let opChain = Promise.resolve(), opsPending = 0;
         let GROUP_OPTIONS_HTML = null;
 
+        // 身分識別（無密碼）：'admin' 或場次編號 '1'~'4'
+        function authParams() {
+            const k = localStorage.getItem(LS_KEY) || '';
+            return k === 'admin'
+                ? { key: localStorage.getItem(LS_PW) || '', role: 'admin', group: '' }   // 管理員：送出密碼
+                : { key: '', role: 'group', group: k };                                  // 會計：免密碼
+        }
+        function toggleLoginPw() {
+            const isAdmin = document.getElementById('login-role').value === 'admin';
+            document.getElementById('login-pw-wrap').style.display = isAdmin ? 'block' : 'none';
+        }
         function esc(v) {
             return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
@@ -726,21 +747,29 @@
             document.getElementById('login-overlay').style.display = 'flex';
             document.getElementById('login-msg').textContent = msg || '';
             document.getElementById('login-name').value = localStorage.getItem(LS_NAME) || '';
+            document.getElementById('login-role').value = localStorage.getItem(LS_KEY) || 'admin';
             document.getElementById('login-pw').value = '';
+            toggleLoginPw();
         }
         function hideLogin() { document.getElementById('login-overlay').style.display = 'none'; }
         function submitLogin() {
-            const k = document.getElementById('login-pw').value.trim();
-            if (!k) return;
+            const k = document.getElementById('login-role').value;
+            const nm = document.getElementById('login-name').value.trim();
+            if (!nm) { document.getElementById('login-msg').textContent = '請填寫姓名'; return; }
+            if (k === 'admin') {
+                const pw = document.getElementById('login-pw').value.trim();
+                if (!pw) { document.getElementById('login-msg').textContent = '請輸入管理員密碼'; return; }
+                localStorage.setItem(LS_PW, pw);
+            } else localStorage.removeItem(LS_PW);
             localStorage.setItem(LS_KEY, k);
-            localStorage.setItem(LS_NAME, document.getElementById('login-name').value.trim());
+            localStorage.setItem(LS_NAME, nm);
             cloudLoaded = false; cloudRev = null;
             document.getElementById('login-msg').textContent = '登入中…';
             loadDataFromCloud(true);
         }
         function logout() {
             if (unsaved || opsPending > 0) { if (!confirm('還有資料正在儲存，確定要登出嗎？')) return; }
-            localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_CACHE);
+            localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_PW); localStorage.removeItem(LS_CACHE);
             location.reload();
         }
 
@@ -831,14 +860,14 @@
             if (!key) { showLogin(''); setSync('err', '🔒 請先登入'); return; }
             if (!silent) setSync('busy', '⏳ 讀取雲端中…');
             try {
-                const res = await fetch(GAS_API_URL + '?action=load&key=' + encodeURIComponent(key), { cache: 'no-store' });
+                const res = await fetch(GAS_API_URL + '?action=load&' + new URLSearchParams(Object.assign(authParams(), { who: localStorage.getItem(LS_NAME) || '' })).toString(), { cache: 'no-store' });
                 const r = await res.json();
                 if (r.ok === undefined) { setSync('err', '⚠️ Apps Script 尚未更新為新版 (點此重試)'); return; }
                 if (!r.ok) {
                     if (r.error === 'auth') {
-                        localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_CACHE);
+                        localStorage.removeItem(LS_PW); localStorage.removeItem(LS_CACHE);
                         cloudLoaded = false;
-                        showLogin('密碼錯誤，請重新輸入');
+                        showLogin('管理員密碼錯誤，請重新輸入');
                         setSync('err', '🔒 密碼錯誤');
                     } else setSync('err', '⚠️ 雲端錯誤：' + r.error + ' (點此重試)');
                     return;
@@ -893,13 +922,13 @@
                 const res = await fetch(GAS_API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify(Object.assign({ key: localStorage.getItem(LS_KEY), who: localStorage.getItem(LS_NAME) || '' }, body))
+                    body: JSON.stringify(Object.assign(authParams(), { who: localStorage.getItem(LS_NAME) || '' }, body))
                 });
                 const r = await res.json();
                 if (r.ok) { onServerState(r); return r; }
                 if (r.error === 'auth') {
-                    localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_CACHE);
-                    showLogin('密碼已失效，請重新登入');
+                    localStorage.removeItem(LS_PW); localStorage.removeItem(LS_CACHE);
+                    showLogin('身分已失效，請重新登入');
                     setSync('err', '🔒 請重新登入');
                 } else {
                     alert('❌ 儲存失敗（' + r.error + '），系統將重新讀取雲端資料。');
@@ -1731,7 +1760,7 @@
             GROUP_OPTIONS_HTML = groupSelect.innerHTML;
             try {
                 const c = JSON.parse(localStorage.getItem(LS_CACHE) || 'null');
-                if (c && c.data && c.data.allBudgets && localStorage.getItem(LS_KEY)) {
+                if (c && c.data && c.data.allBudgets && localStorage.getItem(LS_KEY) && (localStorage.getItem(LS_KEY) !== 'admin' || localStorage.getItem(LS_PW))) {
                     myRole = c.role; myGroup = c.group;
                     applyRoleUI();
                     applyData(c.data);
