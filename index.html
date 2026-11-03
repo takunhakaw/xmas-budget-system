@@ -738,7 +738,12 @@
         }
         function nowHM() { return new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false }); }
         function versionLabel(k) { return k === 'original' ? '📌 原版 (已審核)' : `📂 版本 ${k.toUpperCase()}`; }
-        function newCode() { const prefix = 'XMAS-' + (myRole === 'group' ? 'G' + myGroup + '-' : '');const nextNum = transactions.length + 1;return prefix + String(nextNum).padStart(3, '0');} 
+        function newCode() {
+    const prefix = 'XMAS-' + (myRole === 'group' ? 'G' + myGroup + '-' : '');
+    // 依據目前版本已有的資料數量自動計算下一筆流水號，並補齊 3 位數（例如 001, 002...）
+    const nextNum = transactions.length + 1;
+    return prefix + String(nextNum).padStart(3, '0');
+}
         function fmtMoney(n) { return 'NT$ ' + Math.round(n).toLocaleString(); }
 
         // ---------- 登入 ----------
