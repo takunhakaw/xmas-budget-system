@@ -738,7 +738,7 @@
         }
         function nowHM() { return new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false }); }
         function versionLabel(k) { return k === 'original' ? '📌 原版 (已審核)' : `📂 版本 ${k.toUpperCase()}`; }
-        function newCode() { return 'XMAS-' + (myRole === 'group' ? 'G' + myGroup + '-' : '') + Math.floor(100 + Math.random() * 900); }
+        function newCode() { const prefix = 'XMAS-' + (myRole === 'group' ? 'G' + myGroup + '-' : '');const nextNum = transactions.length + 1;return prefix + String(nextNum).padStart(3, '0');} 
         function fmtMoney(n) { return 'NT$ ' + Math.round(n).toLocaleString(); }
 
         // ---------- 登入 ----------
