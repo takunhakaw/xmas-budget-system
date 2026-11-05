@@ -333,6 +333,7 @@
                         <button class="btn-sm btn-primary-sm" onclick="createNewVersion()">＋ 新版本</button>
                     </div>
                     <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn-sm btn-warning-sm" onclick="resequenceAllCodes()">🔢 整批重新編號</button>
                         <button class="btn-sm btn-success-sm" onclick="copyLineReport()">📋 複製 LINE 報告</button>
                         <button class="btn-sm btn-warning-sm" onclick="exportDataJson()">📤 匯出備份</button>
                         <button class="btn-sm btn-primary-sm" onclick="document.getElementById('import-file-input').click()">📥 匯入資料</button>
@@ -357,7 +358,7 @@
                 <div id="total-sum-warning" style="font-size: 0.9rem; font-weight: bold; color: #10b981; margin-top: -6px;">各組預算加總計算中...</div>
             </section>
 
-            <!-- 🏦 新增：出納統一代墊款與資金池管理 (僅管理員) -->
+            <!-- 🏦 出納統一代墊款與資金池管理 (僅管理員) -->
             <section class="dashboard admin-only" style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 20px; border-radius: 12px; margin-bottom: 24px;">
                 <h2 style="color: #166534;">🏦 出納統一代墊款與資金池管理 (23間教會)</h2>
                 <div class="card-group-row" style="margin-bottom: 16px;">
@@ -568,7 +569,13 @@
                 </div>
                 <form id="account-form">
                     <div class="form-grid">
-                        <div class="form-group"><label>編號</label><input type="text" id="code" required></div>
+                        <div class="form-group">
+                            <label style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>編號</span>
+                                <button type="button" onclick="resetFormCode()" style="background: #e2e8f0; color: #475569; border: none; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; font-weight: bold;">🔄 重置編號</button>
+                            </label>
+                            <input type="text" id="code" required>
+                        </div>
                         <div class="form-group"><label>日期</label><input type="date" id="date" required></div>
                         <div class="form-group"><label>交易架構</label>
                             <select id="flow-type" onchange="handleFlowTypeChange()">
@@ -611,7 +618,7 @@
                             </select>
                         </div>
 
-                        <!-- 📸 新增：單據照片上傳/拍照區塊 -->
+                        <!-- 📸 單據照片上傳/拍照區塊 -->
                         <div class="form-group" style="grid-column: 1 / -1; background: #f0fdf4; border: 1px dashed #22c55e; padding: 12px; border-radius: 8px;">
                             <label style="color: #15803d; font-weight: bold;">📸 憑證/單據照片上傳（可直接拍照）</label>
                             <input type="file" id="receipt-image-input" accept="image/*" capture="environment" onchange="handleImageSelect(event)" style="border: none; background: transparent; padding: 4px 0;">
@@ -644,7 +651,7 @@
                         <thead>
                             <tr>
                                 <th>編號</th><th>日期</th><th>類型</th><th>場次</th><th>項目</th><th>收據類別</th>
-                                <th>📷 憑證</th> <!-- 📸 憑證欄位 -->
+                                <th>📷 憑證</th>
                                 <th>金額</th><th>狀態</th><th>備註</th><th>操作</th>
                             </tr>
                         </thead>
@@ -831,6 +838,35 @@
         function versionLabel(k) { return k === 'original' ? '📌 原版 (已審核)' : `📂 版本 ${k.toUpperCase()}`; }
         function newCode() { return 'XMAS-' + (myRole === 'group' ? 'G' + myGroup + '-' : '') + Math.floor(100 + Math.random() * 900); }
         function fmtMoney(n) { return 'NT$ ' + Math.round(n).toLocaleString(); }
+
+        // ---------- 🔢 重置與整批重新編號邏輯 ----------
+        function resetFormCode() {
+            document.getElementById('code').value = newCode();
+        }
+
+        function resequenceAllCodes() {
+            if (myRole !== 'admin') {
+                alert('⚠️ 僅管理員可執行整批編號重置！');
+                return;
+            }
+            if (!confirm('確定要將目前版本的所有帳目依照「日期由舊到新」重新整理並給予連續編號嗎？\n\n這將會更新歷史帳目清單中的編號。')) {
+                return;
+            }
+
+            // 依日期排序（舊到新）
+            transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            // 重新賦予流水號
+            transactions.forEach((t, index) => {
+                const seq = String(index + 1).padStart(3, '0');
+                const prefix = t.group && t.group !== 'none' ? `G${t.group}` : 'ALL';
+                t.code = `XMAS-${prefix}-${seq}`;
+            });
+
+            saveAndRefresh();
+            saveToCloud(true);
+            alert('🎉 已完成整批帳目重新編號並同步至雲端！');
+        }
 
         // ---------- 📸 照片選擇與縮圖處理 ----------
         function handleImageSelect(event) {
@@ -1577,7 +1613,7 @@
                 group: gKey,
                 category: catValue,
                 receiptType: document.getElementById('receipt-type').value,
-                imageUrl: currentBase64Image, // 📸 儲存圖片
+                imageUrl: currentBase64Image,
                 amount: amt,
                 statusCheck: document.getElementById('status-check').value,
                 note: document.getElementById('note').value
@@ -1591,7 +1627,7 @@
             sendOp({ op: 'addTx', version: currentVersion, tx: sent });
 
             form.reset();
-            clearSelectedImage(); // 📸 重置圖片選擇
+            clearSelectedImage();
             document.getElementById('date').valueAsDate = new Date();
             document.getElementById('code').value = newCode();
             handleFlowTypeChange();
@@ -1869,7 +1905,6 @@
                     statusHtml = `<span style="color: ${sColor}; font-weight: bold;">${esc(t.statusCheck)}</span>`;
                 }
 
-                // 📸 憑證圖片顯示
                 let imgHtml = '-';
                 if (t.imageUrl) {
                     imgHtml = `
@@ -1895,7 +1930,6 @@
                 transactionList.appendChild(tr);
             });
 
-            // 更新出納專戶儀表板數據
             const totalIncEl = document.getElementById('cashier-total-income');
             if (totalIncEl) {
                 totalIncEl.textContent = `NT$ ${cashierIncome.toLocaleString()}`;
