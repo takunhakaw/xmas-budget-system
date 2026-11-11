@@ -387,6 +387,10 @@
                         <h3>已劃撥至各場次</h3>
                         <p id="cashier-transferred">NT$ 0</p>
                     </div>
+                    <div class="card expense" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
+                        <h3>出納直接代付支出</h3>
+                        <p id="cashier-direct">NT$ 0</p>
+                    </div>
                     <div class="card balance" style="background: linear-gradient(135deg, #0284c7, #0369a1);">
                         <h3>出納專戶剩餘金</h3>
                         <p id="cashier-pool-balance">NT$ 0</p>
@@ -395,14 +399,15 @@
 
                 <h3 style="font-size: 1rem; color: #166534; margin-bottom: 8px;">各場次資金劃撥到位與支出狀態</h3>
                 <div class="table-responsive">
-                    <table style="min-width: 600px; background: #fff; border-radius: 8px; overflow: hidden;">
+                    <table style="min-width: 760px; background: #fff; border-radius: 8px; overflow: hidden;">
                         <thead>
                             <tr>
                                 <th>場次名稱</th>
                                 <th>分配預算</th>
                                 <th>出納已撥款金額</th>
-                                <th>實質核銷支出</th>
-                                <th>撥款與支出差額</th>
+                                <th>場次款項支出</th>
+                                <th>🏦 出納直接代付</th>
+                                <th>撥款與場次支出差額</th>
                             </tr>
                         </thead>
                         <tbody id="cashier-summary-body"></tbody>
@@ -643,6 +648,14 @@
                                 <option value="銀行轉帳證明">銀行轉帳證明</option>
                                 <option value="其他證明">其他證明</option>
                             </select>
+                        </div>
+                        <div class="form-group" id="pay-method-wrap">
+                            <label>付款方式</label>
+                            <select id="pay-method" onchange="updatePayHint()">
+                                <option value="self">場次款項支付（預設）</option>
+                                <option value="cashier">🏦 出納直接付款（扣除出納專戶）</option>
+                            </select>
+                            <span id="pay-hint" style="font-size: 0.8rem; color: #7c3aed; display: block; margin-top: 4px; font-weight: 600;"></span>
                         </div>
                         <div class="form-group"><label>金額</label><input type="number" id="amount" required min="0"></div>
                         <div class="form-group"><label>審核狀態</label>
@@ -1607,6 +1620,34 @@
             showTab(t);
         }
 
+        // ---------- 🏦 出納直接付款 ----------
+        function cashierPoolBalance() {
+            let inc = 0, trf = 0, direct = 0;
+            transactions.forEach(t => {
+                if (t.flowType === 'income') inc += t.amount;
+                else if (t.flowType === 'transfer') trf += t.amount;
+                else if (t.paidBy === 'cashier') direct += t.amount;
+            });
+            return inc - trf - direct;
+        }
+        function updatePayHint() {
+            const el = document.getElementById('pay-hint'), sel = document.getElementById('pay-method');
+            if (!el || !sel) return;
+            if (sel.value !== 'cashier' || (flowTypeSelect.value !== 'expense' && flowTypeSelect.value !== 'advance')) { el.textContent = ''; return; }
+            el.textContent = myRole === 'admin'
+                ? `此筆會計入所選場次的執行額度，並直接扣除出納專戶（目前剩餘 NT$ ${cashierPoolBalance().toLocaleString()}）`
+                : '此筆會計入本組執行額度，款項由出納專戶直接支付';
+        }
+        function updatePay(id, val) {
+            if (myRole !== 'admin') return;
+            if (id < 0) { alert('這筆資料還在儲存中，請稍候幾秒再修改。'); render(); return; }
+            const tx = transactions.find(t => t.id === id);
+            if (!tx) return;
+            tx.paidBy = val;
+            saveAndRefresh();
+            sendOp({ op: 'updatePay', id: id, version: currentVersion, paidBy: val });
+        }
+
         // ---------- 管理員直接修改審核狀態功能 ----------
         function updateStatus(id, newStatus) {
             const tx = transactions.find(t => t.id === id);
@@ -1655,6 +1696,9 @@
 
         function handleFlowTypeChange() {
             const type = flowTypeSelect.value;
+            const payWrap = document.getElementById('pay-method-wrap');
+            if (payWrap) payWrap.style.display = (type === 'expense' || type === 'advance') ? 'block' : 'none';
+            updatePayHint();
             if (type === 'income') {
                 categorySelect.style.display = 'none';
                 customCategoryInput.style.display = 'block';
@@ -1852,6 +1896,7 @@
                 imageUrl: currentBase64Image,
                 amount: amt,
                 statusCheck: document.getElementById('status-check').value,
+                paidBy: (flow === 'expense' || flow === 'advance') ? document.getElementById('pay-method').value : 'self',
                 note: document.getElementById('note').value
             });
 
@@ -1889,6 +1934,11 @@
                 if (gExp[gKey] > gBdg) {
                     warnings.push(`⚠️ 柔性警示：第 ${gKey} 場次支出 (NT$ ${gExp[gKey].toLocaleString()}) 已超出該場次預算 (NT$ ${gBdg.toLocaleString()})！`);
                 }
+            }
+
+            if (myRole === 'admin') {
+                const pool = cashierPoolBalance();
+                if (pool < 0) warnings.push(`⚠️ 柔性警示：出納專戶剩餘金已為負數 (NT$ ${pool.toLocaleString()})，請確認劃撥與出納代付紀錄！`);
             }
 
             if (warnings.length > 0) {
@@ -2103,8 +2153,9 @@
 
             transactionList.innerHTML = '';
             let totalInc = 0, totalExp = 0;
-            let cashierIncome = 0, cashierTransferred = 0;
+            let cashierIncome = 0, cashierTransferred = 0, cashierDirect = 0;
             let gTransfer = { '1': 0, '2': 0, '3': 0, '4': 0 };
+            let gDirect = { '1': 0, '2': 0, '3': 0, '4': 0 };
             let gExp = { '1': 0, '2': 0, '3': 0, '4': 0 };
 
             transactions.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(t => {
@@ -2117,10 +2168,23 @@
                 } else {
                     totalExp += t.amount;
                     if (t.group in gExp) gExp[t.group] += t.amount;
+                    if (t.paidBy === 'cashier') {
+                        cashierDirect += t.amount;
+                        if (t.group in gDirect) gDirect[t.group] += t.amount;
+                    }
                 }
 
                 if (!histMatch(t)) return;
 
+                let payHtml = '';
+                if (t.flowType === 'expense' || t.flowType === 'advance') {
+                    const isC = t.paidBy === 'cashier';
+                    if (myRole === 'admin') {
+                        payHtml = `<br><select onchange="updatePay(${t.id}, this.value)" style="padding: 2px 6px; font-size: 0.78rem; margin-top: 4px; max-width: 130px; color: ${isC ? '#7c3aed' : '#64748b'};"><option value="self" ${isC ? '' : 'selected'}>場次款項</option><option value="cashier" ${isC ? 'selected' : ''}>🏦 出納直付</option></select>`;
+                    } else if (isC) {
+                        payHtml = '<br><span style="font-size: 0.78rem; color: #7c3aed;">🏦 出納直付</span>';
+                    }
+                }
                 let fText = t.flowType === 'income' ? '代墊/收入' : t.flowType === 'transfer' ? '↗️ 場次劃撥' : t.flowType === 'expense' ? '支出核銷' : '預支';
                 let fColor = t.flowType === 'income' ? '#10b981' : t.flowType === 'transfer' ? '#0284c7' : t.flowType === 'expense' ? '#ef4444' : '#f59e0b';
                 let gText = t.group === '1' ? '青年場' : t.group === '2' ? '松年場' : t.group === '3' ? '兒童場' : t.group === '4' ? '主場' : '出納專戶';
@@ -2151,7 +2215,7 @@
                 tr.innerHTML = `
                     <td style="font-weight: 600;">${esc(t.code)}</td>
                     <td>${esc(t.date)}</td>
-                    <td style="color: ${fColor}; font-weight: bold;">${fText}</td>
+                    <td style="color: ${fColor}; font-weight: bold;">${fText}${payHtml}</td>
                     <td>${gText}</td>
                     <td>${esc(t.category)}</td>
                     <td><span style="background: #f1f5f9; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem;">${esc(t.receiptType)}</span></td>
@@ -2168,7 +2232,8 @@
             if (totalIncEl) {
                 totalIncEl.textContent = `NT$ ${cashierIncome.toLocaleString()}`;
                 document.getElementById('cashier-transferred').textContent = `NT$ ${cashierTransferred.toLocaleString()}`;
-                document.getElementById('cashier-pool-balance').textContent = `NT$ ${(cashierIncome - cashierTransferred).toLocaleString()}`;
+                document.getElementById('cashier-pool-balance').textContent = `NT$ ${(cashierIncome - cashierTransferred - cashierDirect).toLocaleString()}`;
+                document.getElementById('cashier-direct').textContent = `NT$ ${cashierDirect.toLocaleString()}`;
 
                 const cBody = document.getElementById('cashier-summary-body');
                 if (cBody) {
@@ -2180,7 +2245,8 @@
                         const name = k === '1' ? '第一場次(青年)' : k === '2' ? '第二場次(松年)' : k === '3' ? '第三場次(兒童)' : '第四場次(主場)';
                         const b = gBudgets[k] || 0;
                         const trf = gTransfer[k] || 0;
-                        const exp = gExp[k] || 0;
+                        const direct = gDirect[k] || 0;
+                        const exp = (gExp[k] || 0) - direct;   // 場次款項支出（不含出納直接代付）
                         const diff = trf - exp;
 
                         html += `<tr>
@@ -2188,6 +2254,7 @@
                             <td>NT$ ${b.toLocaleString()}</td>
                             <td style="color:#0284c7; font-weight:bold;">NT$ ${trf.toLocaleString()}</td>
                             <td style="color:#dc2626;">NT$ ${exp.toLocaleString()}</td>
+                            <td style="color:#7c3aed; font-weight:bold;">NT$ ${direct.toLocaleString()}</td>
                             <td style="color:${diff < 0 ? '#dc2626' : '#059669'}; font-weight:bold;">
                                 ${diff < 0 ? '⚠️ 超撥支出 NT$ ' + Math.abs(diff).toLocaleString() : '餘額 NT$ ' + diff.toLocaleString()}
                             </td>
