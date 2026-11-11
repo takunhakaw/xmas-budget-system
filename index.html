@@ -302,6 +302,12 @@
         .role-banner { display: none; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; padding: 10px 14px; border-radius: 10px; margin-bottom: 16px; font-weight: 600; }
         .new-badge { background: #ef4444; color: #fff; border-radius: 999px; padding: 3px 10px; font-size: .8rem; cursor: pointer; }
         .log-wrap { max-height: 380px; overflow: auto; }
+        /* ===== 頁籤 ===== */
+        .tab-nav { position: sticky; top: 0; z-index: 900; display: flex; gap: 6px; overflow-x: auto; background: #fff; padding: 10px 0; margin: 0 0 16px; border-bottom: 2px solid #e2e8f0; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+        .tab-btn { flex: 0 0 auto; border: 1px solid #cbd5e1; background: #f8fafc; color: #475569; padding: 10px 16px; border-radius: 999px; font-size: 0.95rem; font-weight: 600; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+        .tab-btn:hover { border-color: #3b82f6; color: #1d4ed8; }
+        .tab-btn.active { background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; border-color: #2563eb; }
+        #main-view > [data-tab]:not(.tab-active) { display: none !important; }
         @media (max-width: 640px) {
             body { padding: 12px 8px 130px 8px; }
             .container { padding: 16px; border-radius: 12px; }
@@ -342,8 +348,19 @@
                 </div>
             </section>
 
+            <!-- 頁籤導覽 -->
+            <nav id="tab-nav" class="tab-nav">
+                <button type="button" class="tab-btn" data-tab="overview" onclick="showTab('overview')">📊 總覽</button>
+                <button type="button" class="tab-btn admin-only" data-tab="budget" onclick="showTab('budget')">🎯 預算設定</button>
+                <button type="button" class="tab-btn" data-tab="form" onclick="showTab('form')">✍️ 新增帳目</button>
+                <button type="button" class="tab-btn" data-tab="list" onclick="showTab('list')">📜 歷史帳目</button>
+                <button type="button" class="tab-btn admin-only" data-tab="analysis" onclick="showTab('analysis')">📈 經費分析</button>
+                <button type="button" class="tab-btn admin-only" data-tab="doccheck" onclick="showTab('doccheck')">📋 簽收核銷</button>
+                <button type="button" class="tab-btn admin-only" data-tab="admin" onclick="showTab('admin')">🏦 後台管理 <span id="tab-admin-badge" class="new-badge" style="display: none;"></span></button>
+            </nav>
+
             <!-- 預算設定區 -->
-            <section class="budget-setting-section admin-only">
+            <section class="budget-setting-section admin-only" data-tab="budget">
                 <h2>專案預算額度設定 (<span id="current-version-title" style="color: #0284c7;">原版</span>)</h2>
                 <div class="budget-inputs">
                     <div class="form-group" style="grid-column: 1 / -1; background: #e0f2fe; padding: 12px; border-radius: 8px; border: 1px solid #bae6fd;">
@@ -359,7 +376,7 @@
             </section>
 
             <!-- 🏦 出納統一代墊款與資金池管理 (僅管理員) -->
-            <section class="dashboard admin-only" style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 20px; border-radius: 12px; margin-bottom: 24px;">
+            <section class="dashboard admin-only" data-tab="overview" style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 20px; border-radius: 12px; margin-bottom: 24px;">
                 <h2 style="color: #166534;">🏦 出納統一代墊款與資金池管理 (23間教會)</h2>
                 <div class="card-group-row" style="margin-bottom: 16px;">
                     <div class="card income">
@@ -394,7 +411,7 @@
             </section>
 
             <!-- 全體彙總儀表板 -->
-            <section class="dashboard admin-only">
+            <section class="dashboard admin-only" data-tab="overview">
                 <h2>全體彙總資料</h2>
                 <div class="card-group-row">
                     <div class="card income"><h3>總收入 (含代墊款)</h3><p id="total-income">NT$ 0</p></div>
@@ -404,7 +421,7 @@
             </section>
 
             <!-- 各場次動向看板 -->
-            <section class="group-dashboard admin-only">
+            <section class="group-dashboard admin-only" data-tab="overview">
                 <h2>各場次執行進度與動向 (點擊卡片查看明細與編輯項目)</h2>
                 <div class="group-cards-grid">
                     <div class="group-card" onclick="openGroupDetail('1')">
@@ -435,7 +452,7 @@
             </section>
 
             <!-- 本組預算 (各組會計) -->
-            <section class="form-section group-only" id="my-budget-panel">
+            <section class="form-section group-only" id="my-budget-panel" data-tab="overview">
                 <h2 id="my-budget-title">📋 本組預算</h2>
                 <div class="card-group-row" style="margin-bottom: 14px;">
                     <div class="card balance"><h3>本組預算</h3><p id="my-budget-total">NT$ 0</p></div>
@@ -455,7 +472,7 @@
             </section>
 
             <!-- 後台管理 (僅管理員) -->
-            <section class="form-section admin-only" id="admin-panel">
+            <section class="form-section admin-only" id="admin-panel" data-tab="admin">
                 <h2>🏦 後台管理（僅管理員可見）</h2>
                 <div style="margin-bottom: 18px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
                     <label for="live-version-select" style="margin-bottom: 0; font-size: 0.9rem; font-weight: 600;">開放會計填報的版本：</label>
@@ -489,7 +506,7 @@
             </section>
 
             <!-- 四場次總表分析 (僅管理員) -->
-            <section class="form-section admin-only" id="analysis-panel">
+            <section class="form-section admin-only" id="analysis-panel" data-tab="analysis">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px;">
                     <h2 style="margin-bottom: 0;">📊 四場次經費明細總表分析</h2>
                     <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
@@ -531,7 +548,7 @@
             </section>
 
             <!-- 簽收表與核銷表確認 (僅管理員) -->
-            <section class="form-section admin-only" id="doccheck-panel">
+            <section class="form-section admin-only" id="doccheck-panel" data-tab="doccheck">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 6px;">
                     <h2 style="margin-bottom: 0;">📋 簽收表、核銷表繳交與核對確認</h2>
                     <button class="btn-sm btn-success-sm" onclick="exportDocChecksCsv()">📥 匯出確認表 CSV</button>
@@ -549,7 +566,7 @@
             </section>
 
             <!-- 新增帳目表單 -->
-            <section class="form-section">
+            <section class="form-section" data-tab="form">
                 <h2>新增帳目與核銷紀錄</h2>
                 
                 <!-- 💡 憑證核銷與報帳重要說明區塊 -->
@@ -653,7 +670,7 @@
             </section>
 
             <!-- 歷史帳目清單 -->
-            <section class="list-section">
+            <section class="list-section" data-tab="list">
                 <h2>歷史帳目清單</h2>
                 <div style="display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
                     <input type="text" id="search-input" placeholder="🔍 搜尋編號、項目或備註..." oninput="render()" style="max-width: 300px;">
@@ -1004,7 +1021,7 @@
             banner.style.display = 'flex';
             banner.innerHTML = `<span>${label}${name ? '｜' + esc(name) : ''}</span>
                 <span style="display:flex; gap:8px; align-items:center;">
-                    <span id="banner-new" class="new-badge" style="display:none;" onclick="document.getElementById('admin-panel').scrollIntoView({behavior:'smooth'})"></span>
+                    <span id="banner-new" class="new-badge" style="display:none;" onclick="showTab('admin', true)"></span>
                     <button class="btn-sm btn-warning-sm" onclick="logout()">🔓 登出</button>
                 </span>`;
             if (GROUP_OPTIONS_HTML === null) GROUP_OPTIONS_HTML = groupSelect.innerHTML;
@@ -1018,6 +1035,7 @@
             }
             document.getElementById('code').value = newCode();
             updateLogBadge();
+            initTabs();
         }
 
         function fillLiveSelect() {
@@ -1397,6 +1415,8 @@
         function updateLogBadge() {
             if (myRole !== 'admin') return;
             const n = unseenCount();
+            const tabBadge = document.getElementById('tab-admin-badge');
+            if (tabBadge) { tabBadge.style.display = n > 0 ? 'inline-block' : 'none'; tabBadge.textContent = n; }
             ['log-new-badge', 'banner-new'].forEach(id => {
                 const el = document.getElementById(id);
                 if (!el) return;
@@ -1564,6 +1584,27 @@
             ['hf-code', 'hf-from', 'hf-to', 'hf-flow', 'hf-group', 'hf-cat', 'search-input'].forEach(id => { document.getElementById(id).value = ''; });
             document.getElementById('filter-status').value = 'all';
             render();
+        }
+
+        // ---------- 頁籤切換 ----------
+        const LS_TAB = 'xmas115_tab';
+        const ADMIN_TABS = ['budget', 'analysis', 'doccheck', 'admin'];
+        let currentTab = 'overview';
+        function showTab(name, toTop) {
+            if (myRole !== 'admin' && ADMIN_TABS.indexOf(name) >= 0) name = 'overview';
+            currentTab = name;
+            try { localStorage.setItem(LS_TAB, name); } catch (e) {}
+            document.querySelectorAll('#main-view > [data-tab]').forEach(el => el.classList.toggle('tab-active', el.dataset.tab === name));
+            document.querySelectorAll('#tab-nav .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+            const act = document.querySelector('#tab-nav .tab-btn.active');
+            if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest', inline: 'center' });
+            const nav = document.getElementById('tab-nav');
+            if (toTop || (nav && nav.getBoundingClientRect().top <= 0)) window.scrollTo(0, 0);
+        }
+        function initTabs() {
+            let t = 'overview';
+            try { t = localStorage.getItem(LS_TAB) || 'overview'; } catch (e) {}
+            showTab(t);
         }
 
         // ---------- 管理員直接修改審核狀態功能 ----------
