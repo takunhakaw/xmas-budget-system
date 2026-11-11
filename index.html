@@ -530,6 +530,24 @@
                 <div id="analysis-insights" style="font-size: 0.92rem; line-height: 1.8;"></div>
             </section>
 
+            <!-- 簽收表與核銷表確認 (僅管理員) -->
+            <section class="form-section admin-only" id="doccheck-panel">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 6px;">
+                    <h2 style="margin-bottom: 0;">📋 簽收表、核銷表繳交與核對確認</h2>
+                    <button class="btn-sm btn-success-sm" onclick="exportDocChecksCsv()">📥 匯出確認表 CSV</button>
+                </div>
+                <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 14px;">「已繳交」＝收到紙本；「已核對」＝大會會計確認內容無誤。勾選後會自動儲存至雲端（此資料不分版本）。24 間教會：前山 11 間、後山 13 間。</p>
+                <div id="doccheck-cards" class="group-cards-grid" style="margin-bottom: 18px;"></div>
+                <div id="doccheck-tabs" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;"></div>
+                <h3 id="doccheck-title" style="margin-bottom: 8px;"></h3>
+                <div class="table-responsive">
+                    <table style="min-width: 640px;">
+                        <thead id="doccheck-head"></thead>
+                        <tbody id="doccheck-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
             <!-- 新增帳目表單 -->
             <section class="form-section">
                 <h2>新增帳目與核銷紀錄</h2>
@@ -799,6 +817,7 @@
         };
 
         let allTransactions = { 'original': [] };
+        let docChecks = {}; // 簽收表/核銷表確認（不分版本）
 
         let budgets = allBudgets[currentVersion];
         let groupBudgetItems = allGroupBudgetItems[currentVersion];
@@ -1007,6 +1026,7 @@
             allBudgets = d.allBudgets || allBudgets;
             allGroupBudgetItems = d.allGroupBudgetItems || allGroupBudgetItems;
             allTransactions = d.allTransactions || allTransactions;
+            docChecks = d.docChecks || docChecks;
             liveVersion = d.liveVersion && allBudgets[d.liveVersion] ? d.liveVersion : 'original';
             const mine = localStorage.getItem(LS_VER);
             if (myRole === 'group') currentVersion = liveVersion;
@@ -1033,7 +1053,7 @@
             renderAuditLog();
         }
 
-        function payloadData() { return { currentVersion, liveVersion, allBudgets, allGroupBudgetItems, allTransactions }; }
+        function payloadData() { return { currentVersion, liveVersion, allBudgets, allGroupBudgetItems, allTransactions, docChecks }; }
         function saveCache() {
             try { localStorage.setItem(LS_CACHE, JSON.stringify({ role: myRole, group: myGroup, rev: cloudRev, data: payloadData() })); } catch (e) {}
         }
@@ -1373,6 +1393,106 @@
             renderAuditLog();
         }
 
+        // ---------- 📋 簽收表 / 核銷表確認 ----------
+        const CHURCHES_FRONT = ['三民教會', '角板教會', '可愛教會', '烏內教會', '義興教會', '羅浮教會', '溪口教會', '光輝教會', '奎輝教會', '頭角教會', '高遶教會'];
+        const CHURCHES_BACK = ['永美教會', '比亞外教會', '高義教會', '拉卡教會', '沙崙子教會', '爺亨教會', '華陵教會', '巴陵教會', '加拉教會', '哈嘎灣教會', '嘎拉賀教會', '鐵立庫教會', '哈凱教會'];
+        const ALL_CHURCHES = CHURCHES_FRONT.concat(CHURCHES_BACK);
+        const SESSION_ROWS = ['成人場', '兒童場', '青年場', '松年場'];
+        const DOC_SECTIONS = [
+            { key: 'signAdult', short: '成人簽到', title: '1. 成人場次簽收簽到表（繳交核對、人數）', rows: ALL_CHURCHES, count: true, church: true },
+            { key: 'signYouth', short: '青年簽到', title: '2. 青年場次簽收簽到表（繳交核對、人數）', rows: ALL_CHURCHES, count: true, church: true },
+            { key: 'signChild', short: '兒主簽到', title: '3. 兒主場次簽收簽到表（繳交核對、人數）', rows: ALL_CHURCHES, count: true, church: true },
+            { key: 'signSenior', short: '松年簽到', title: '4. 松年場次簽收簽到表（繳交核對、人數）', rows: ALL_CHURCHES, count: true, church: true },
+            { key: 'perf', short: '表演費簽領', title: '5. 團體表演費簽領（青年場、松年場、成人場）', rows: ['青年場', '松年場', '成人場'] },
+            { key: 'hire', short: '僱工費', title: '6. 僱工費簽領（成人場、兒童場、青年場、松年場）', rows: SESSION_ROWS },
+            { key: 'voucher', short: '各場憑證', title: '7. 各場次憑證（發票、收據等）', rows: SESSION_ROWS }
+        ];
+        let docTab = 'signAdult';
+
+        function docRow(sec, row) { return (docChecks[sec] && docChecks[sec][row]) || { sub: false, ver: false, n: '', note: '' }; }
+        function docStats(sec) {
+            let sub = 0, ver = 0, n = 0;
+            sec.rows.forEach(r => { const d = docRow(sec.key, r); if (d.sub) sub++; if (d.ver) ver++; n += parseInt(d.n) || 0; });
+            return { sub, ver, n, total: sec.rows.length };
+        }
+        function setDocField(sec, row, field, val) {
+            if (myRole !== 'admin') return;
+            if (!docChecks[sec]) docChecks[sec] = {};
+            const d = Object.assign({ sub: false, ver: false, n: '', note: '' }, docChecks[sec][row] || {});
+            d[field] = val;
+            if (field === 'ver' && val) d.sub = true;       // 已核對必定已繳交
+            if (field === 'sub' && !val) d.ver = false;     // 取消繳交同時取消核對
+            docChecks[sec][row] = d;
+            renderDocChecks();
+            saveToCloud();
+        }
+        function setDocTab(k) { docTab = k; renderDocChecks(); }
+
+        function renderDocChecks() {
+            const cards = document.getElementById('doccheck-cards');
+            if (!cards || myRole !== 'admin') return;
+            cards.innerHTML = DOC_SECTIONS.map(sec => {
+                const st = docStats(sec);
+                const done = st.ver === st.total;
+                const pct = st.total ? Math.round(st.sub / st.total * 100) : 0;
+                return `<div class="group-card" style="${sec.key === docTab ? 'border-color:#3b82f6;' : ''}" onclick="setDocTab('${sec.key}')">
+                    <h3>${esc(sec.short)}</h3>
+                    <p style="font-size:.95rem; font-weight:bold; color:${done ? '#059669' : '#1e293b'};">繳交 ${st.sub}/${st.total}｜核對 ${st.ver}/${st.total} ${done ? '✅' : ''}</p>
+                    <div class="progress-bar-container"><div class="progress-bar" style="width:${pct}%; background-color:${done ? '#10b981' : '#3b82f6'};"></div></div>
+                    ${sec.count ? `<p style="font-size:.85rem; color:#555;">已登錄人數：${st.n.toLocaleString()} 人</p>` : '<p style="font-size:.85rem; color:#555;">&nbsp;</p>'}
+                </div>`;
+            }).join('');
+
+            document.getElementById('doccheck-tabs').innerHTML = DOC_SECTIONS.map(sec =>
+                `<button class="btn-sm ${sec.key === docTab ? 'btn-primary-sm' : ''}" style="${sec.key === docTab ? '' : 'background:#94a3b8;'}" onclick="setDocTab('${sec.key}')">${esc(sec.short)}</button>`).join('');
+
+            const sec = DOC_SECTIONS.find(x => x.key === docTab) || DOC_SECTIONS[0];
+            const st = docStats(sec);
+            document.getElementById('doccheck-title').textContent = sec.title;
+            document.getElementById('doccheck-head').innerHTML =
+                `<tr><th>${sec.church ? '教會' : '場次'}</th><th>已繳交</th><th>已核對</th>${sec.count ? '<th>人數</th>' : ''}<th>備註（缺件、補件說明）</th></tr>`;
+
+            const line = r => {
+                const d = docRow(sec.key, r);
+                const bg = d.ver ? 'background:#f0fdf4;' : d.sub ? 'background:#fffbeb;' : '';
+                const q = esc(r);
+                return `<tr style="${bg}">
+                    <td style="font-weight:600; white-space:nowrap;">${q}</td>
+                    <td><input type="checkbox" style="width:20px;height:20px;" ${d.sub ? 'checked' : ''} onchange="setDocField('${sec.key}','${q}','sub',this.checked)"></td>
+                    <td><input type="checkbox" style="width:20px;height:20px;" ${d.ver ? 'checked' : ''} onchange="setDocField('${sec.key}','${q}','ver',this.checked)"></td>
+                    ${sec.count ? `<td><input type="number" min="0" value="${esc(d.n)}" style="width:90px; padding:6px;" onchange="setDocField('${sec.key}','${q}','n',this.value === '' ? '' : Math.max(0, parseInt(this.value) || 0))"></td>` : ''}
+                    <td><input type="text" value="${esc(d.note)}" maxlength="60" style="padding:6px;" onchange="setDocField('${sec.key}','${q}','note',this.value.trim())"></td></tr>`;
+            };
+            const cols = sec.count ? 5 : 4;
+            let html = '';
+            if (sec.church) {
+                html += `<tr><td colspan="${cols}" style="background:#e0f2fe; font-weight:bold; color:#0369a1;">前山（${CHURCHES_FRONT.length} 間）</td></tr>` + CHURCHES_FRONT.map(line).join('');
+                html += `<tr><td colspan="${cols}" style="background:#e0f2fe; font-weight:bold; color:#0369a1;">後山（${CHURCHES_BACK.length} 間）</td></tr>` + CHURCHES_BACK.map(line).join('');
+                const missing = ALL_CHURCHES.filter(r => !docRow(sec.key, r).sub);
+                html += `<tr style="font-weight:bold; background:#f1f5f9;"><td>合計</td><td>${st.sub}/${st.total}</td><td>${st.ver}/${st.total}</td><td>${st.n.toLocaleString()} 人</td>
+                    <td style="font-weight:normal; font-size:.85rem; color:${missing.length ? '#d97706' : '#059669'};">${missing.length ? '尚未繳交：' + esc(missing.join('、')) : '✅ 24 間教會皆已繳交'}</td></tr>`;
+            } else {
+                html += sec.rows.map(line).join('');
+                html += `<tr style="font-weight:bold; background:#f1f5f9;"><td>合計</td><td>${st.sub}/${st.total}</td><td>${st.ver}/${st.total}</td><td></td></tr>`;
+            }
+            document.getElementById('doccheck-body').innerHTML = html;
+        }
+
+        function exportDocChecksCsv() {
+            const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+            const lines = [['項目', '教會/場次', '已繳交', '已核對', '人數', '備註'].map(q).join(',')];
+            DOC_SECTIONS.forEach(sec => sec.rows.forEach(r => {
+                const d = docRow(sec.key, r);
+                lines.push([sec.short, r, d.sub ? '是' : '否', d.ver ? '是' : '否', sec.count ? d.n : '', d.note].map(q).join(','));
+            }));
+            const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `115聖誕節_簽收核銷確認表_${new Date().toISOString().slice(0, 10)}.csv`;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        }
+
         // ---------- 管理員直接修改審核狀態功能 ----------
         function updateStatus(id, newStatus) {
             const tx = transactions.find(t => t.id === id);
@@ -1528,6 +1648,7 @@
                 allBudgets: allBudgets,
                 allGroupBudgetItems: allGroupBudgetItems,
                 allTransactions: allTransactions,
+                docChecks: docChecks,
                 exportTime: new Date().toISOString()
             };
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
@@ -1550,6 +1671,7 @@
                         allBudgets = imported.allBudgets;
                         allGroupBudgetItems = imported.allGroupBudgetItems;
                         allTransactions = imported.allTransactions;
+                        docChecks = imported.docChecks || docChecks;
                         currentVersion = imported.currentVersion || 'original';
 
                         versionSelect.innerHTML = '';
@@ -1989,6 +2111,7 @@
             renderCashflow();
             renderAnalysis();
             renderMyBudget();
+            renderDocChecks();
         }
 
         window.addEventListener('DOMContentLoaded', () => {
