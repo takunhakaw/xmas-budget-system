@@ -382,6 +382,7 @@
                     <div class="card income">
                         <h3>出納代墊款總收入</h3>
                         <p id="cashier-total-income">NT$ 0</p>
+                        <small id="cashier-income-note" style="display: block; opacity: 0.85; font-size: 0.75rem; margin-top: 4px;"></small>
                     </div>
                     <div class="card expense" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
                         <h3>已劃撥至各場次</h3>
@@ -1245,6 +1246,7 @@
                 else if (t.flowType === 'advance') r.adv += t.amount;
                 else if (t.flowType === 'expense') r.exp += t.amount;
             });
+            rows['none'].inc += advanceDocTotal();
             const bud = { '1': budgets.group1, '2': budgets.group2, '3': budgets.group3, '4': budgets.group4, 'none': null };
             const T = { inc: 0, exp: 0, adv: 0, bud: 0, remain: 0 };
             const line = (name, r, b, bold) => {
@@ -1447,33 +1449,57 @@
         const CHURCHES_FRONT = ['三民教會', '角板教會', '可愛教會', '烏內教會', '義興教會', '羅浮教會', '溪口教會', '光輝教會', '奎輝教會', '頭角教會', '高遶教會'];
         const CHURCHES_BACK = ['永美教會', '比亞外教會', '高義教會', '拉卡教會', '沙崙子教會', '爺亨教會', '華陵教會', '巴陵教會', '加拉教會', '哈嘎灣教會', '嘎拉賀教會', '鐵立庫教會', '哈凱教會'];
         const ALL_CHURCHES = CHURCHES_FRONT.concat(CHURCHES_BACK);
+        const NO_ADVANCE_CHURCHES = ['永美教會'];   // 免收代墊款
+        const ADVANCE_FRONT = CHURCHES_FRONT;
+        const ADVANCE_BACK = CHURCHES_BACK.filter(c => NO_ADVANCE_CHURCHES.indexOf(c) < 0);
+        const ADVANCE_CHURCHES = ADVANCE_FRONT.concat(ADVANCE_BACK);
         const SESSION_ROWS = ['成人場', '兒童場', '青年場', '松年場'];
+        const CHURCH_GROUPS = [
+            { name: `前山（${CHURCHES_FRONT.length} 間）`, list: CHURCHES_FRONT },
+            { name: `後山（${CHURCHES_BACK.length} 間）`, list: CHURCHES_BACK }
+        ];
         const DOC_SECTIONS = [
-            { key: 'signAdult', short: '成人簽到', title: '1. 成人場次簽收簽到表（繳交核對、人數）', rows: ALL_CHURCHES, count: true, church: true },
-            { key: 'signYouth', short: '青年簽到', title: '2. 青年場次簽收簽到表（繳交核對、人數）', rows: ALL_CHURCHES, count: true, church: true },
-            { key: 'signChild', short: '兒主簽到', title: '3. 兒主場次簽收簽到表（繳交核對、人數）', rows: ALL_CHURCHES, count: true, church: true },
-            { key: 'signSenior', short: '松年簽到', title: '4. 松年場次簽收簽到表（繳交核對、人數）', rows: ALL_CHURCHES, count: true, church: true },
+            { key: 'signAdult', short: '成人簽到', title: '1. 成人場次簽收簽到表（繳交核對、人數）', rows: ALL_CHURCHES, groups: CHURCH_GROUPS, count: true },
+            { key: 'signYouth', short: '青年簽到', title: '2. 青年場次簽收簽到表（繳交核對、人數）', rows: ALL_CHURCHES, groups: CHURCH_GROUPS, count: true },
+            { key: 'signChild', short: '兒主簽到', title: '3. 兒主場次簽收簽到表（繳交核對、人數）', rows: ALL_CHURCHES, groups: CHURCH_GROUPS, count: true },
+            { key: 'signSenior', short: '松年簽到', title: '4. 松年場次簽收簽到表（繳交核對、人數）', rows: ALL_CHURCHES, groups: CHURCH_GROUPS, count: true },
             { key: 'perf', short: '表演費簽領', title: '5. 團體表演費簽領（青年場、松年場、成人場）', rows: ['青年場', '松年場', '成人場'] },
             { key: 'hire', short: '僱工費', title: '6. 僱工費簽領（成人場、兒童場、青年場、松年場）', rows: SESSION_ROWS },
-            { key: 'voucher', short: '各場憑證', title: '7. 各場次憑證（發票、收據等）', rows: SESSION_ROWS }
+            { key: 'voucher', short: '各場憑證', title: '7. 各場次憑證（發票、收據等）', rows: SESSION_ROWS },
+            { key: 'advance', short: '代墊款收入', title: '8. 代墊款收入核對（23 間教會；永美教會免收）', rows: ADVANCE_CHURCHES, amount: true, subLabel: '已收款',
+              groups: [{ name: `前山（${ADVANCE_FRONT.length} 間）`, list: ADVANCE_FRONT }, { name: `後山（${ADVANCE_BACK.length} 間，永美教會免收代墊款）`, list: ADVANCE_BACK }] }
         ];
         let docTab = 'signAdult';
 
-        function docRow(sec, row) { return (docChecks[sec] && docChecks[sec][row]) || { sub: false, ver: false, n: '', note: '' }; }
+        function docRow(sec, row) { return (docChecks[sec] && docChecks[sec][row]) || { sub: false, ver: false, n: '', amt: '', note: '' }; }
         function docStats(sec) {
-            let sub = 0, ver = 0, n = 0;
-            sec.rows.forEach(r => { const d = docRow(sec.key, r); if (d.sub) sub++; if (d.ver) ver++; n += parseInt(d.n) || 0; });
-            return { sub, ver, n, total: sec.rows.length };
+            let sub = 0, ver = 0, n = 0, amt = 0, amtAll = 0;
+            sec.rows.forEach(r => {
+                const d = docRow(sec.key, r);
+                if (d.sub) sub++;
+                if (d.ver) ver++;
+                n += parseInt(d.n) || 0;
+                amtAll += Number(d.amt) || 0;
+                if (d.sub) amt += Number(d.amt) || 0;
+            });
+            return { sub, ver, n, amt, amtAll, total: sec.rows.length };
+        }
+        // 代墊款：僅計入「已收款」的教會金額，併入出納專戶
+        function advanceDocTotal() {
+            const d = docChecks.advance || {};
+            let n = 0;
+            ADVANCE_CHURCHES.forEach(c => { const r = d[c]; if (r && r.sub) n += Number(r.amt) || 0; });
+            return n;
         }
         function setDocField(sec, row, field, val) {
             if (myRole !== 'admin') return;
             if (!docChecks[sec]) docChecks[sec] = {};
-            const d = Object.assign({ sub: false, ver: false, n: '', note: '' }, docChecks[sec][row] || {});
+            const d = Object.assign({ sub: false, ver: false, n: '', amt: '', note: '' }, docChecks[sec][row] || {});
             d[field] = val;
-            if (field === 'ver' && val) d.sub = true;       // 已核對必定已繳交
+            if (field === 'ver' && val) d.sub = true;       // 已核對必定已繳交/已收款
             if (field === 'sub' && !val) d.ver = false;     // 取消繳交同時取消核對
             docChecks[sec][row] = d;
-            renderDocChecks();
+            setTimeout(render, 0);                          // 等焦點移到下一欄後再重繪，渲染時會還原焦點
             saveToCloud();
         }
         function setDocTab(k) { docTab = k; renderDocChecks(); }
@@ -1481,15 +1507,20 @@
         function renderDocChecks() {
             const cards = document.getElementById('doccheck-cards');
             if (!cards || myRole !== 'admin') return;
+            const ae = document.activeElement;
+            const activeKey = ae && ae.dataset ? ae.dataset.k : null;
+
             cards.innerHTML = DOC_SECTIONS.map(sec => {
                 const st = docStats(sec);
+                const lab = sec.subLabel || '繳交';
                 const done = st.ver === st.total;
                 const pct = st.total ? Math.round(st.sub / st.total * 100) : 0;
+                const extra = sec.count ? `已登錄人數：${st.n.toLocaleString()} 人` : sec.amount ? `已收款金額：${fmtMoney(st.amt)}` : '&nbsp;';
                 return `<div class="group-card" style="${sec.key === docTab ? 'border-color:#3b82f6;' : ''}" onclick="setDocTab('${sec.key}')">
                     <h3>${esc(sec.short)}</h3>
-                    <p style="font-size:.95rem; font-weight:bold; color:${done ? '#059669' : '#1e293b'};">繳交 ${st.sub}/${st.total}｜核對 ${st.ver}/${st.total} ${done ? '✅' : ''}</p>
+                    <p style="font-size:.95rem; font-weight:bold; color:${done ? '#059669' : '#1e293b'};">${lab} ${st.sub}/${st.total}｜核對 ${st.ver}/${st.total} ${done ? '✅' : ''}</p>
                     <div class="progress-bar-container"><div class="progress-bar" style="width:${pct}%; background-color:${done ? '#10b981' : '#3b82f6'};"></div></div>
-                    ${sec.count ? `<p style="font-size:.85rem; color:#555;">已登錄人數：${st.n.toLocaleString()} 人</p>` : '<p style="font-size:.85rem; color:#555;">&nbsp;</p>'}
+                    <p style="font-size:.85rem; color:#555;">${extra}</p>
                 </div>`;
             }).join('');
 
@@ -1498,42 +1529,55 @@
 
             const sec = DOC_SECTIONS.find(x => x.key === docTab) || DOC_SECTIONS[0];
             const st = docStats(sec);
+            const lab = sec.subLabel || '已繳交';
             document.getElementById('doccheck-title').textContent = sec.title;
             document.getElementById('doccheck-head').innerHTML =
-                `<tr><th>${sec.church ? '教會' : '場次'}</th><th>已繳交</th><th>已核對</th>${sec.count ? '<th>人數</th>' : ''}<th>備註（缺件、補件說明）</th></tr>`;
+                `<tr><th>${sec.groups ? '教會' : '場次'}</th><th>${lab}</th><th>已核對</th>${sec.count ? '<th>人數</th>' : ''}${sec.amount ? '<th>金額 (NT$)</th>' : ''}<th>備註（缺件、補件說明）</th></tr>`;
 
             const line = r => {
                 const d = docRow(sec.key, r);
                 const bg = d.ver ? 'background:#f0fdf4;' : d.sub ? 'background:#fffbeb;' : '';
-                const q = esc(r);
+                const q = esc(r), k = sec.key;
                 return `<tr style="${bg}">
                     <td style="font-weight:600; white-space:nowrap;">${q}</td>
-                    <td><input type="checkbox" style="width:20px;height:20px;" ${d.sub ? 'checked' : ''} onchange="setDocField('${sec.key}','${q}','sub',this.checked)"></td>
-                    <td><input type="checkbox" style="width:20px;height:20px;" ${d.ver ? 'checked' : ''} onchange="setDocField('${sec.key}','${q}','ver',this.checked)"></td>
-                    ${sec.count ? `<td><input type="number" min="0" value="${esc(d.n)}" style="width:90px; padding:6px;" onchange="setDocField('${sec.key}','${q}','n',this.value === '' ? '' : Math.max(0, parseInt(this.value) || 0))"></td>` : ''}
-                    <td><input type="text" value="${esc(d.note)}" maxlength="60" style="padding:6px;" onchange="setDocField('${sec.key}','${q}','note',this.value.trim())"></td></tr>`;
+                    <td><input type="checkbox" data-k="${k}|${q}|sub" style="width:20px;height:20px;" ${d.sub ? 'checked' : ''} onchange="setDocField('${k}','${q}','sub',this.checked)"></td>
+                    <td><input type="checkbox" data-k="${k}|${q}|ver" style="width:20px;height:20px;" ${d.ver ? 'checked' : ''} onchange="setDocField('${k}','${q}','ver',this.checked)"></td>
+                    ${sec.count ? `<td><input type="number" min="0" data-k="${k}|${q}|n" value="${esc(d.n)}" style="width:90px; padding:6px;" onchange="setDocField('${k}','${q}','n',this.value === '' ? '' : Math.max(0, parseInt(this.value) || 0))"></td>` : ''}
+                    ${sec.amount ? `<td><input type="number" min="0" data-k="${k}|${q}|amt" value="${esc(d.amt)}" style="width:120px; padding:6px;" onchange="setDocField('${k}','${q}','amt',this.value === '' ? '' : Math.max(0, Number(this.value) || 0))"></td>` : ''}
+                    <td><input type="text" data-k="${k}|${q}|note" value="${esc(d.note)}" maxlength="60" style="padding:6px;" onchange="setDocField('${k}','${q}','note',this.value.trim())"></td></tr>`;
             };
-            const cols = sec.count ? 5 : 4;
+            const cols = 4 + (sec.count ? 1 : 0) + (sec.amount ? 1 : 0);
             let html = '';
-            if (sec.church) {
-                html += `<tr><td colspan="${cols}" style="background:#e0f2fe; font-weight:bold; color:#0369a1;">前山（${CHURCHES_FRONT.length} 間）</td></tr>` + CHURCHES_FRONT.map(line).join('');
-                html += `<tr><td colspan="${cols}" style="background:#e0f2fe; font-weight:bold; color:#0369a1;">後山（${CHURCHES_BACK.length} 間）</td></tr>` + CHURCHES_BACK.map(line).join('');
-                const missing = ALL_CHURCHES.filter(r => !docRow(sec.key, r).sub);
-                html += `<tr style="font-weight:bold; background:#f1f5f9;"><td>合計</td><td>${st.sub}/${st.total}</td><td>${st.ver}/${st.total}</td><td>${st.n.toLocaleString()} 人</td>
-                    <td style="font-weight:normal; font-size:.85rem; color:${missing.length ? '#d97706' : '#059669'};">${missing.length ? '尚未繳交：' + esc(missing.join('、')) : '✅ 24 間教會皆已繳交'}</td></tr>`;
+            if (sec.groups) {
+                sec.groups.forEach(g => {
+                    html += `<tr><td colspan="${cols}" style="background:#e0f2fe; font-weight:bold; color:#0369a1;">${esc(g.name)}</td></tr>` + g.list.map(line).join('');
+                });
+                const missing = sec.rows.filter(r => !docRow(sec.key, r).sub);
+                const totalCell = sec.count ? `<td>${st.n.toLocaleString()} 人</td>` : sec.amount ? `<td>${fmtMoney(st.amt)}</td>` : '';
+                let note = missing.length ? `尚未${sec.amount ? '收款' : '繳交'}：${esc(missing.join('、'))}` : `✅ ${st.total} 間教會皆已${sec.amount ? '收款' : '繳交'}`;
+                if (sec.amount) {
+                    note += `<br>已收款金額 ${fmtMoney(st.amt)} 已併入出納專戶剩餘金。` + (st.amtAll !== st.amt ? `另有 ${fmtMoney(st.amtAll - st.amt)} 已填金額但尚未勾「已收款」，未計入。` : '');
+                }
+                html += `<tr style="font-weight:bold; background:#f1f5f9;"><td>合計</td><td>${st.sub}/${st.total}</td><td>${st.ver}/${st.total}</td>${totalCell}
+                    <td style="font-weight:normal; font-size:.85rem; color:${missing.length ? '#d97706' : '#059669'};">${note}</td></tr>`;
             } else {
                 html += sec.rows.map(line).join('');
                 html += `<tr style="font-weight:bold; background:#f1f5f9;"><td>合計</td><td>${st.sub}/${st.total}</td><td>${st.ver}/${st.total}</td><td></td></tr>`;
             }
             document.getElementById('doccheck-body').innerHTML = html;
+
+            if (activeKey) {
+                const el = document.querySelector('[data-k="' + activeKey.replace(/"/g, '\\"') + '"]');
+                if (el) el.focus();
+            }
         }
 
         function exportDocChecksCsv() {
             const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-            const lines = [['項目', '教會/場次', '已繳交', '已核對', '人數', '備註'].map(q).join(',')];
+            const lines = [['項目', '教會/場次', '已繳交(收款)', '已核對', '人數', '金額', '備註'].map(q).join(',')];
             DOC_SECTIONS.forEach(sec => sec.rows.forEach(r => {
                 const d = docRow(sec.key, r);
-                lines.push([sec.short, r, d.sub ? '是' : '否', d.ver ? '是' : '否', sec.count ? d.n : '', d.note].map(q).join(','));
+                lines.push([sec.short, r, d.sub ? '是' : '否', d.ver ? '是' : '否', sec.count ? d.n : '', sec.amount ? d.amt : '', d.note].map(q).join(','));
             }));
             const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
             const a = document.createElement('a');
@@ -1628,7 +1672,7 @@
                 else if (t.flowType === 'transfer') trf += t.amount;
                 else if (t.paidBy === 'cashier') direct += t.amount;
             });
-            return inc - trf - direct;
+            return inc + advanceDocTotal() - trf - direct;
         }
         function updatePayHint() {
             const el = document.getElementById('pay-hint'), sel = document.getElementById('pay-method');
@@ -1979,6 +2023,7 @@
                     if (t.group === '4') g4Exp += t.amount;
                 }
             });
+            totalInc += advanceDocTotal();
             const vName = versionSelect.options[versionSelect.selectedIndex].text;
             const text = `📊【115年聯合聖誕節經費動向回報 - ${vName}】\n` +
                 `• 總預算: NT$ 900,000 (固定)\n` +
@@ -2228,8 +2273,14 @@
                 transactionList.appendChild(tr);
             });
 
+            const advDoc = advanceDocTotal();
+            cashierIncome += advDoc;
+            totalInc += advDoc;
+
             const totalIncEl = document.getElementById('cashier-total-income');
             if (totalIncEl) {
+                const noteEl = document.getElementById('cashier-income-note');
+                if (noteEl) noteEl.textContent = `含教會代墊款核對 ${fmtMoney(advDoc)}`;
                 totalIncEl.textContent = `NT$ ${cashierIncome.toLocaleString()}`;
                 document.getElementById('cashier-transferred').textContent = `NT$ ${cashierTransferred.toLocaleString()}`;
                 document.getElementById('cashier-pool-balance').textContent = `NT$ ${(cashierIncome - cashierTransferred - cashierDirect).toLocaleString()}`;
