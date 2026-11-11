@@ -655,7 +655,7 @@
             <!-- 歷史帳目清單 -->
             <section class="list-section">
                 <h2>歷史帳目清單</h2>
-                <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;">
+                <div style="display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
                     <input type="text" id="search-input" placeholder="🔍 搜尋編號、項目或備註..." oninput="render()" style="max-width: 300px;">
                     <select id="filter-status" onchange="render()" style="max-width: 200px;">
                         <option value="all">所有審核狀態</option>
@@ -663,6 +663,23 @@
                         <option value="待補件/需確認">⚠️ 待補件/需確認</option>
                         <option value="金額有誤">❌ 金額有誤</option>
                     </select>
+                </div>
+                <div style="background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+                        <b style="font-size: 0.9rem; color: #334155;">🔎 交叉篩選（各下拉選單只會顯示符合其他條件的選項，括號為筆數）</b>
+                        <span style="display: flex; align-items: center; gap: 10px;">
+                            <span id="hf-count" style="font-size: 0.85rem; font-weight: 600; color: #0369a1;"></span>
+                            <button type="button" class="btn-sm btn-warning-sm" onclick="clearHistFilters()">清除篩選</button>
+                        </span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;">
+                        <div><label style="font-size: 0.8rem;">編號</label><input type="text" id="hf-code" list="hf-code-list" placeholder="輸入或選擇編號" oninput="render()" style="padding: 8px;"><datalist id="hf-code-list"></datalist></div>
+                        <div><label style="font-size: 0.8rem;">日期（起）</label><input type="date" id="hf-from" onchange="render()" style="padding: 8px;"></div>
+                        <div><label style="font-size: 0.8rem;">日期（迄）</label><input type="date" id="hf-to" onchange="render()" style="padding: 8px;"></div>
+                        <div><label style="font-size: 0.8rem;">類型</label><select id="hf-flow" onchange="render()" style="padding: 8px;"></select></div>
+                        <div><label style="font-size: 0.8rem;">場次</label><select id="hf-group" onchange="render()" style="padding: 8px;"></select></div>
+                        <div><label style="font-size: 0.8rem;">項目</label><select id="hf-cat" onchange="render()" style="padding: 8px;"></select></div>
+                    </div>
                 </div>
                 <div class="table-responsive">
                     <table>
@@ -1493,6 +1510,62 @@
             setTimeout(() => URL.revokeObjectURL(a.href), 1000);
         }
 
+        // ---------- 🔎 歷史帳目交叉篩選 ----------
+        const HF_FLOW_LABEL = { income: '代墊/收入', transfer: '場次劃撥', expense: '支出核銷', advance: '預支' };
+        const HF_GROUP_LABEL = { '1': '青年場', '2': '松年場', '3': '兒童場', '4': '主場', 'none': '出納專戶' };
+
+        // skip：計算某下拉選單的可選項時，略過它自己的條件
+        function histMatch(t, skip) {
+            const kw = (document.getElementById('search-input').value || '').toLowerCase();
+            if (kw && !(t.code + t.category + (t.note || '')).toLowerCase().includes(kw)) return false;
+            const st = document.getElementById('filter-status').value;
+            if (st !== 'all' && t.statusCheck !== st) return false;
+            const code = document.getElementById('hf-code').value.trim().toLowerCase();
+            if (skip !== 'code' && code && !String(t.code).toLowerCase().includes(code)) return false;
+            const from = document.getElementById('hf-from').value, to = document.getElementById('hf-to').value;
+            if (from && String(t.date) < from) return false;
+            if (to && String(t.date) > to) return false;
+            const flow = document.getElementById('hf-flow').value;
+            if (skip !== 'flow' && flow && t.flowType !== flow) return false;
+            const grp = document.getElementById('hf-group').value;
+            if (skip !== 'group' && grp && t.group !== grp) return false;
+            const cat = document.getElementById('hf-cat').value;
+            if (skip !== 'cat' && cat && t.category !== cat) return false;
+            return true;
+        }
+
+        function fillHistSelect(id, skip, getVal, getLabel, order) {
+            const sel = document.getElementById(id);
+            if (!sel) return;
+            const cur = sel.value;
+            const counts = {};
+            transactions.forEach(t => { if (histMatch(t, skip)) { const v = getVal(t); counts[v] = (counts[v] || 0) + 1; } });
+            if (cur && !(cur in counts)) counts[cur] = 0;   // 目前選取的值保留，避免被默默清掉
+            let keys = Object.keys(counts);
+            keys = order ? keys.sort((a, b) => order.indexOf(a) - order.indexOf(b)) : keys.sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            sel.innerHTML = '<option value="">全部</option>' + keys.map(k =>
+                `<option value="${esc(k)}">${esc(getLabel(k))} (${counts[k]})</option>`).join('');
+            sel.value = cur;
+        }
+
+        function updateHistFilterOptions() {
+            if (!document.getElementById('hf-flow')) return;
+            fillHistSelect('hf-flow', 'flow', t => t.flowType, k => HF_FLOW_LABEL[k] || k, ['income', 'transfer', 'expense', 'advance']);
+            fillHistSelect('hf-group', 'group', t => t.group, k => HF_GROUP_LABEL[k] || k, ['1', '2', '3', '4', 'none']);
+            fillHistSelect('hf-cat', 'cat', t => t.category, k => k, null);
+            const codes = [];
+            transactions.forEach(t => { if (histMatch(t, 'code')) codes.push(t.code); });
+            document.getElementById('hf-code-list').innerHTML = codes.sort().map(c => `<option value="${esc(c)}"></option>`).join('');
+            const n = transactions.filter(t => histMatch(t)).length;
+            document.getElementById('hf-count').textContent = `符合 ${n} / 共 ${transactions.length} 筆`;
+        }
+
+        function clearHistFilters() {
+            ['hf-code', 'hf-from', 'hf-to', 'hf-flow', 'hf-group', 'hf-cat', 'search-input'].forEach(id => { document.getElementById(id).value = ''; });
+            document.getElementById('filter-status').value = 'all';
+            render();
+        }
+
         // ---------- 管理員直接修改審核狀態功能 ----------
         function updateStatus(id, newStatus) {
             const tx = transactions.find(t => t.id === id);
@@ -2005,9 +2078,7 @@
                     if (t.group in gExp) gExp[t.group] += t.amount;
                 }
 
-                const matchKeyword = (t.code + t.category + (t.note || '')).toLowerCase().includes(keyword);
-                const matchStatus = (statusFilter === 'all' || t.statusCheck === statusFilter);
-                if (!matchKeyword || !matchStatus) return;
+                if (!histMatch(t)) return;
 
                 let fText = t.flowType === 'income' ? '代墊/收入' : t.flowType === 'transfer' ? '↗️ 場次劃撥' : t.flowType === 'expense' ? '支出核銷' : '預支';
                 let fColor = t.flowType === 'income' ? '#10b981' : t.flowType === 'transfer' ? '#0284c7' : t.flowType === 'expense' ? '#ef4444' : '#f59e0b';
@@ -2112,6 +2183,7 @@
             renderAnalysis();
             renderMyBudget();
             renderDocChecks();
+            updateHistFilterOptions();
         }
 
         window.addEventListener('DOMContentLoaded', () => {
