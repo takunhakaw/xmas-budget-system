@@ -574,7 +574,11 @@
 
             <!-- 新增帳目表單 -->
             <section class="form-section" data-tab="form">
-                <h2>新增帳目與核銷紀錄</h2>
+                <h2 id="form-panel-title" onclick="toggleFormPanel()" style="cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 0;">
+                    <span>新增帳目與核銷紀錄</span>
+                    <span id="form-panel-hint" style="font-size: 0.85rem; font-weight: 600; color: #2563eb;">▶ 點此展開</span>
+                </h2>
+                <div id="form-panel-body" style="display: none; margin-top: 14px;">
                 
                 <!-- 💡 憑證核銷與報帳重要說明區塊 -->
                 <div style="background: #fffbeb; border: 2px solid #f59e0b; padding: 18px; border-radius: 12px; margin-bottom: 20px; font-size: 0.95rem; color: #92400e; line-height: 1.7; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
@@ -688,6 +692,7 @@
                     <div class="form-group" style="margin-top: 16px;"><label>備註說明</label><input type="text" id="note" placeholder="選填 (例：23間教會名稱/劃撥用途等)"></div>
                     <button type="submit" class="btn-submit">新增紀錄</button>
                 </form>
+                </div>
             </section>
 
             <!-- 歷史帳目清單 -->
@@ -1816,6 +1821,14 @@
 
         document.getElementById('date').valueAsDate = new Date();
         document.getElementById('code').value = newCode();
+
+        // 新增帳目區塊：預設收合，點標題展開／收合
+        function toggleFormPanel() {
+            const body = document.getElementById('form-panel-body');
+            const open = body.style.display === 'none';
+            body.style.display = open ? 'block' : 'none';
+            document.getElementById('form-panel-hint').textContent = open ? '▼ 點此收合' : '▶ 點此展開';
+        }
 
         function handleFlowTypeChange() {
             const type = flowTypeSelect.value;
