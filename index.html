@@ -752,6 +752,7 @@
                             <option value="name-asc">項目名稱 (筆劃/字首)</option>
                         </select>
                         <button class="btn-sm btn-primary-sm" onclick="addBudgetItem()">＋ 新增項目</button>
+                        <button class="btn-sm btn-success-sm" onclick="saveGroupBudgetItems()">💾 儲存預算項目</button>
                     </div>
                 </div>
 
@@ -905,6 +906,42 @@
         function versionLabel(k) { return k === 'original' ? '📌 原版 (已審核)' : `📂 版本 ${k.toUpperCase()}`; }
         function newCode() { return 'XMAS-' + (myRole === 'group' ? 'G' + myGroup + '-' : '') + Math.floor(100 + Math.random() * 900); }
         function fmtMoney(n) { return 'NT$ ' + Math.round(n).toLocaleString(); }
+
+        // ---------- 預算項目唯一 ID（同名項目也能分開計算） ----------
+        function newItemId() { return 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+        function ensureItemIds(itemsByGroup) {
+            Object.keys(itemsByGroup || {}).forEach(g => {
+                const arr = Array.isArray(itemsByGroup[g]) ? itemsByGroup[g] : [];
+                const used = {};
+                arr.forEach(i => { if (i.id) used[i.id] = true; });
+                arr.forEach((i, idx) => {
+                    if (!i.id) {
+                        let id = 'L' + g + '_' + idx;      // 與後端規則一致
+                        if (used[id]) id = newItemId();
+                        i.id = id; used[id] = true;
+                    }
+                });
+            });
+        }
+        function ensureAllItemIds() { Object.keys(allGroupBudgetItems).forEach(v => ensureItemIds(allGroupBudgetItems[v])); }
+
+        // 依「預算列」分別統計實際支出（不再依名稱合併）
+        // 舊帳目沒有 itemId 時，歸入同名的第一列
+        function buildActualMap(groupKey) {
+            const items = (groupBudgetItems && groupBudgetItems[groupKey]) || [];
+            const ids = {}, firstByCat = {};
+            items.forEach(i => { ids[i.id] = true; if (!(i.category in firstByCat)) firstByCat[i.category] = i.id; });
+            const byId = {}, outside = {};
+            let total = 0;
+            transactions.forEach(t => {
+                if (t.group !== groupKey || t.flowType === 'income' || t.flowType === 'transfer') return;
+                total += t.amount;
+                const key = (t.itemId && ids[t.itemId]) ? t.itemId : firstByCat[t.category];
+                if (key) byId[key] = (byId[key] || 0) + t.amount;
+                else outside[t.category] = (outside[t.category] || 0) + t.amount;
+            });
+            return { byId, outside, total };
+        }
 
         // ---------- 🔢 重置與整批重新編號邏輯 ----------
         function resetFormCode() {
@@ -1076,6 +1113,7 @@
             allGroupBudgetItems = d.allGroupBudgetItems || allGroupBudgetItems;
             allTransactions = d.allTransactions || allTransactions;
             docChecks = d.docChecks || docChecks;
+            ensureAllItemIds();
             liveVersion = d.liveVersion && allBudgets[d.liveVersion] ? d.liveVersion : 'original';
             const mine = localStorage.getItem(LS_VER);
             if (myRole === 'group') currentVersion = liveVersion;
@@ -1274,12 +1312,8 @@
             if (!body || myRole !== 'group') return;
             const g = myGroup;
             const items = groupBudgetItems[g] || [];
-            const actual = {}; let used = 0;
-            transactions.forEach(t => {
-                if (t.group !== g || t.flowType === 'income' || t.flowType === 'transfer') return;
-                actual[t.category] = (actual[t.category] || 0) + t.amount;
-                used += t.amount;
-            });
+            const m = buildActualMap(g);
+            const used = m.total;
             const total = items.reduce((s, i) => s + (parseFloat(i.budget) || 0), 0);
             const remain = total - used, rate = total > 0 ? used / total : (used > 0 ? 9.99 : 0);
             const col = rate > 1 ? '#dc2626' : rate > 0.75 ? '#d97706' : '#059669';
@@ -1294,13 +1328,12 @@
             r.textContent = total > 0 ? Math.round(rate * 100) + '%' : '-'; r.style.color = col;
 
             let rows = items.map(i => {
-                const b = parseFloat(i.budget) || 0, a = actual[i.category] || 0, rm = b - a;
-                delete actual[i.category];
+                const b = parseFloat(i.budget) || 0, a = m.byId[i.id] || 0, rm = b - a;
                 return `<tr><td style="font-weight:600;">${esc(i.category)}</td><td>${fmtMoney(b)}</td><td>${fmtMoney(a)}</td>
                     <td style="font-weight:bold; color:${rm < 0 ? '#dc2626' : '#059669'};">${fmtMoney(rm)}${rm < 0 ? ' ⚠️' : ''}</td><td>${esc(i.note || '-')}</td></tr>`;
             }).join('');
-            Object.keys(actual).forEach(c => {
-                rows += `<tr><td>${esc(c)}</td><td>-</td><td>${fmtMoney(actual[c])}</td><td style="color:#dc2626; font-weight:bold;">預算外</td><td>-</td></tr>`;
+            Object.keys(m.outside).forEach(c => {
+                rows += `<tr><td>${esc(c)}</td><td>-</td><td>${fmtMoney(m.outside[c])}</td><td style="color:#dc2626; font-weight:bold;">預算外</td><td>-</td></tr>`;
             });
             body.innerHTML = rows || '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">管理員尚未編列本組預算項目</td></tr>';
         }
@@ -1692,6 +1725,17 @@
             sendOp({ op: 'updatePay', id: id, version: currentVersion, paidBy: val });
         }
 
+        // ---------- 管理員調整帳目對應的預算列（同名項目時使用） ----------
+        function updateTxItem(id, itemId) {
+            if (myRole !== 'admin') return;
+            if (id < 0) { alert('這筆資料還在儲存中，請稍候幾秒再修改。'); render(); return; }
+            const tx = transactions.find(t => t.id === id);
+            if (!tx) return;
+            tx.itemId = itemId;
+            saveAndRefresh();
+            sendOp({ op: 'updateTxItem', id: id, version: currentVersion, itemId: itemId });
+        }
+
         // ---------- 管理員直接修改審核狀態功能 ----------
         function updateStatus(id, newStatus) {
             const tx = transactions.find(t => t.id === id);
@@ -1722,6 +1766,7 @@
             });
             budgets.total = 900000;
         }
+        ensureAllItemIds();
         recalculateGroupBudgetsFromItems();
 
         let currentActiveGroup = null;
@@ -1874,6 +1919,7 @@
                         allGroupBudgetItems = imported.allGroupBudgetItems;
                         allTransactions = imported.allTransactions;
                         docChecks = imported.docChecks || docChecks;
+                        ensureAllItemIds();
                         currentVersion = imported.currentVersion || 'original';
 
                         versionSelect.innerHTML = '';
@@ -1909,13 +1955,17 @@
 
         function updateCategoryOptions() {
             if (flowTypeSelect.value === 'income' || flowTypeSelect.value === 'transfer') return;
-            const items = groupBudgetItems[groupSelect.value] || groupBudgetItems['none'];
+            const gKey = groupSelect.value in groupBudgetItems ? groupSelect.value : 'none';
+            const items = groupBudgetItems[gKey];
+            const m = buildActualMap(gKey);
             categorySelect.innerHTML = '';
             if (items) {
                 items.forEach(item => {
                     const opt = document.createElement('option');
-                    opt.value = item.category;
-                    opt.textContent = `${item.category} (預算: NT$ ${item.budget.toLocaleString()})`;
+                    opt.value = item.id;   // 以項目 ID 區分同名的預算列
+                    const note = item.note && item.note !== '-' ? '｜' + item.note.slice(0, 14) : '';
+                    const remain = (parseFloat(item.budget) || 0) - (m.byId[item.id] || 0);
+                    opt.textContent = `${item.category}${note} (預算: NT$ ${(parseFloat(item.budget) || 0).toLocaleString()}｜剩 NT$ ${remain.toLocaleString()})`;
                     categorySelect.appendChild(opt);
                 });
             }
@@ -1927,7 +1977,16 @@
             const amt = parseFloat(document.getElementById('amount').value);
             const gKey = groupSelect.value;
             const flow = flowTypeSelect.value;
-            const catValue = (flow === 'income' || flow === 'transfer') ? customCategoryInput.value.trim() : categorySelect.value;
+            let catValue, itemId = '';
+            if (flow === 'income' || flow === 'transfer') {
+                catValue = customCategoryInput.value.trim();
+            } else {
+                itemId = categorySelect.value;
+                const its = groupBudgetItems[gKey] || groupBudgetItems['none'] || [];
+                const it = its.find(i => i.id === itemId);
+                catValue = it ? it.category : '';
+                if (!catValue) { alert('請選擇經費項目'); return; }
+            }
 
             transactions.push({
                 id: Date.now(),
@@ -1936,6 +1995,7 @@
                 flowType: flow,
                 group: gKey,
                 category: catValue,
+                itemId: itemId,
                 receiptType: document.getElementById('receipt-type').value,
                 imageUrl: currentBase64Image,
                 amount: amt,
@@ -2006,6 +2066,7 @@
         }
 
         function handleFloatingSave() {
+            collectItemEdits();
             saveToCloud(true);
         }
 
@@ -2047,140 +2108,141 @@
             document.getElementById('detail-view').classList.add('active');
 
             let gName = groupKey === '1' ? '第一場次 (青年)' : groupKey === '2' ? '第二場次 (松年)' : groupKey === '3' ? '第三場次 (兒童)' : '第四場次 (主場)';
-            let gBudget = groupKey === '1' ? budgets.group1 : groupKey === '2' ? budgets.group2 : groupKey === '3' ? budgets.group3 : budgets.group4;
             document.getElementById('detail-title').textContent = `${gName} - 預算明細編輯與排序功能`;
             document.getElementById('item-sort-select').value = 'default';
 
-            let gExpense = 0;
-            let actualMap = {};
-            transactions.filter(t => t.group === groupKey && t.flowType !== 'income' && t.flowType !== 'transfer').forEach(t => {
-                actualMap[t.category] = (actualMap[t.category] || 0) + t.amount;
-                gExpense += t.amount;
-            });
-
-            renderBudgetEditTable(groupKey, actualMap);
-
-            document.getElementById('detail-expense').textContent = `NT$ ${gExpense.toLocaleString()}`;
-            document.getElementById('detail-budget').textContent = `NT$ ${gBudget.toLocaleString()}`;
-            document.getElementById('detail-remain').textContent = `NT$ ${(gBudget - gExpense).toLocaleString()}`;
+            renderBudgetEditTable(groupKey);
+            refreshDetailSummary(groupKey);
         }
 
-        function renderBudgetEditTable(groupKey, actualMap) {
+        // 上方三張卡片：實際支出 / 分配預算 / 剩餘
+        function refreshDetailSummary(groupKey) {
+            const m = buildActualMap(groupKey);
+            let sum = 0;
+            const bdgs = document.querySelectorAll('.edit-budget');
+            if (bdgs.length) bdgs.forEach(el => { sum += parseFloat(el.value) || 0; });
+            else sum = (groupBudgetItems[groupKey] || []).reduce((a, i) => a + (parseFloat(i.budget) || 0), 0);
+            document.getElementById('detail-expense').textContent = `NT$ ${m.total.toLocaleString()}`;
+            document.getElementById('detail-budget').textContent = `NT$ ${sum.toLocaleString()}`;
+            document.getElementById('detail-remain').textContent = `NT$ ${(sum - m.total).toLocaleString()}`;
+        }
+
+        // 每一列只扣自己那一列的實際支出，不與同名項目合併
+        function renderBudgetEditTable(groupKey) {
+            const m = buildActualMap(groupKey);
             budgetComparisonList.innerHTML = '';
-            let items = groupBudgetItems[groupKey] || [];
+            const items = groupBudgetItems[groupKey] || [];
             items.forEach((row, index) => {
-                let actual = actualMap[row.category] || 0;
-                let remain = row.budget - actual;
-                let tr = document.createElement('tr');
+                const actual = m.byId[row.id] || 0;
+                const remain = (parseFloat(row.budget) || 0) - actual;
+                const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td><input type="text" value="${esc(row.category)}" class="edit-cat" data-index="${index}" style="padding: 6px;"></td>
-                    <td><input type="number" value="${row.budget}" class="edit-budget" data-index="${index}" min="0" style="padding: 6px;" oninput="previewGroupBudgetSum('${groupKey}')"></td>
+                    <td><input type="text" value="${esc(row.category)}" class="edit-cat" data-index="${index}" style="padding: 6px;" onchange="onItemEdit()"></td>
+                    <td><input type="number" value="${row.budget}" class="edit-budget" data-index="${index}" min="0" style="padding: 6px;" oninput="onItemInput()" onchange="onItemEdit()"></td>
                     <td style="font-weight: bold;">NT$ ${actual.toLocaleString()}</td>
-                    <td style="color: ${remain < 0 ? '#ef4444' : '#10b981'}; font-weight: bold;">NT$ ${remain.toLocaleString()}</td>
-                    <td><input type="text" value="${esc(row.note)}" class="edit-note" data-index="${index}" style="padding: 6px;"></td>
+                    <td class="cell-remain" data-actual="${actual}" style="color: ${remain < 0 ? '#ef4444' : '#10b981'}; font-weight: bold;">NT$ ${remain.toLocaleString()}</td>
+                    <td><input type="text" value="${esc(row.note)}" class="edit-note" data-index="${index}" style="padding: 6px;" onchange="onItemEdit()"></td>
                     <td><button class="btn-delete" onclick="removeBudgetItem('${groupKey}', ${index})">刪除</button></td>
                 `;
                 budgetComparisonList.appendChild(tr);
             });
+            Object.keys(m.outside).forEach(c => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${esc(c)}</td><td>-</td><td style="font-weight: bold;">NT$ ${m.outside[c].toLocaleString()}</td>
+                    <td style="color:#ef4444; font-weight:bold;">預算外</td><td>（無對應預算列）</td><td></td>`;
+                budgetComparisonList.appendChild(tr);
+            });
+        }
+
+        // 把畫面上輸入的內容寫回資料（否則「已同步」送出的仍是舊資料）
+        function collectItemEdits() {
+            if (!currentActiveGroup) return;
+            const items = groupBudgetItems[currentActiveGroup];
+            if (!items) return;
+            const cats = document.querySelectorAll('.edit-cat');
+            const bdgs = document.querySelectorAll('.edit-budget');
+            const notes = document.querySelectorAll('.edit-note');
+            cats.forEach((el, idx) => {
+                if (!items[idx]) return;
+                items[idx].category = el.value.trim() || items[idx].category;
+                items[idx].budget = parseFloat(bdgs[idx].value) || 0;
+                items[idx].note = notes[idx].value.trim();
+            });
+            allGroupBudgetItems[currentVersion] = groupBudgetItems;
+            recalculateGroupBudgetsFromItems();
+            allBudgets[currentVersion] = budgets;
+        }
+
+        // 輸入中：即時更新每列剩餘與上方卡片（不儲存）
+        function onItemInput() {
+            if (!currentActiveGroup) return;
+            const bdgs = document.querySelectorAll('.edit-budget');
+            document.querySelectorAll('.cell-remain').forEach((td, idx) => {
+                const remain = (parseFloat(bdgs[idx].value) || 0) - (parseFloat(td.dataset.actual) || 0);
+                td.textContent = `NT$ ${remain.toLocaleString()}`;
+                td.style.color = remain < 0 ? '#ef4444' : '#10b981';
+            });
+            refreshDetailSummary(currentActiveGroup);
+        }
+
+        // 離開欄位：寫回資料並自動儲存至雲端
+        function onItemEdit() {
+            if (!currentActiveGroup) return;
+            collectItemEdits();
+            onItemInput();
+            updateVersionDisplay();
+            updateCategoryOptions();
+            saveToCloud();
         }
 
         function sortBudgetItems() {
             if (!currentActiveGroup) return;
+            collectItemEdits();
             const sortType = document.getElementById('item-sort-select').value;
-            let items = groupBudgetItems[currentActiveGroup];
-
-            const cats = document.querySelectorAll('.edit-cat');
-            const bdgs = document.querySelectorAll('.edit-budget');
-            const notes = document.querySelectorAll('.edit-note');
-            cats.forEach((el, idx) => {
-                items[idx].category = el.value.trim();
-                items[idx].budget = parseFloat(bdgs[idx].value) || 0;
-                items[idx].note = notes[idx].value.trim();
-            });
-
-            if (sortType === 'amount-desc') {
-                items.sort((a, b) => b.budget - a.budget);
-            } else if (sortType === 'amount-asc') {
-                items.sort((a, b) => a.budget - b.budget);
-            } else if (sortType === 'name-asc') {
-                items.sort((a, b) => a.category.localeCompare(b.category, 'zh-Hant'));
-            }
-
-            let actualMap = {};
-            transactions.filter(t => t.group === currentActiveGroup && t.flowType !== 'income' && t.flowType !== 'transfer').forEach(t => {
-                actualMap[t.category] = (actualMap[t.category] || 0) + t.amount;
-            });
-
-            renderBudgetEditTable(currentActiveGroup, actualMap);
-            previewGroupBudgetSum(currentActiveGroup);
-        }
-
-        function previewGroupBudgetSum(groupKey) {
-            const bdgs = document.querySelectorAll('.edit-budget');
-            let sum = 0;
-            bdgs.forEach(el => { sum += parseFloat(el.value) || 0; });
-            document.getElementById('detail-budget').textContent = `NT$ ${sum.toLocaleString()}`;
+            const items = groupBudgetItems[currentActiveGroup];
+            if (sortType === 'amount-desc') items.sort((a, b) => b.budget - a.budget);
+            else if (sortType === 'amount-asc') items.sort((a, b) => a.budget - b.budget);
+            else if (sortType === 'name-asc') items.sort((a, b) => a.category.localeCompare(b.category, 'zh-Hant'));
+            renderBudgetEditTable(currentActiveGroup);
+            refreshDetailSummary(currentActiveGroup);
+            updateCategoryOptions();
+            if (sortType !== 'default') saveToCloud();
         }
 
         function addBudgetItem() {
             if (!currentActiveGroup) return;
-            groupBudgetItems[currentActiveGroup].push({ category: '新項目', budget: 0, note: '說明' });
-            let actualMap = {};
-            transactions.filter(t => t.group === currentActiveGroup && t.flowType !== 'income' && t.flowType !== 'transfer').forEach(t => {
-                actualMap[t.category] = (actualMap[t.category] || 0) + t.amount;
-            });
-            renderBudgetEditTable(currentActiveGroup, actualMap);
-            previewGroupBudgetSum(currentActiveGroup);
+            collectItemEdits();
+            groupBudgetItems[currentActiveGroup].push({ id: newItemId(), category: '新項目', budget: 0, note: '說明' });
+            renderBudgetEditTable(currentActiveGroup);
+            refreshDetailSummary(currentActiveGroup);
+            const cats = document.querySelectorAll('.edit-cat');
+            if (cats.length) { const el = cats[cats.length - 1]; el.focus(); el.select(); }
         }
 
         function removeBudgetItem(groupKey, index) {
+            collectItemEdits();
+            const item = groupBudgetItems[groupKey][index];
+            if (!item) return;
+            const used = buildActualMap(groupKey).byId[item.id] || 0;
+            if (used > 0 && !confirm(`「${item.category}」這一列已有 NT$ ${used.toLocaleString()} 的帳目，刪除後這些帳目會改歸同名的另一列或變成「預算外」。確定刪除？`)) return;
             groupBudgetItems[groupKey].splice(index, 1);
-            let actualMap = {};
-            transactions.filter(t => t.group === currentActiveGroup && t.flowType !== 'income' && t.flowType !== 'transfer').forEach(t => {
-                actualMap[t.category] = (actualMap[t.category] || 0) + t.amount;
-            });
-            renderBudgetEditTable(currentActiveGroup, actualMap);
-            previewGroupBudgetSum(currentActiveGroup);
+            renderBudgetEditTable(groupKey);
+            refreshDetailSummary(groupKey);
+            updateVersionDisplay();
+            updateCategoryOptions();
+            saveToCloud();
         }
 
         function saveGroupBudgetItems() {
             if (!currentActiveGroup) return;
-            const cats = document.querySelectorAll('.edit-cat');
-            const bdgs = document.querySelectorAll('.edit-budget');
-            const notes = document.querySelectorAll('.edit-note');
-
-            let newItems = [];
-            let newTotalGroupBudget = 0;
-
-            cats.forEach((el, idx) => {
-                let catName = el.value.trim();
-                let catBdg = parseFloat(bdgs[idx].value) || 0;
-                let catNote = notes[idx].value.trim();
-                newItems.push({ category: catName, budget: catBdg, note: catNote });
-                newTotalGroupBudget += catBdg;
-            });
-
-            groupBudgetItems[currentActiveGroup] = newItems;
-            allGroupBudgetItems[currentVersion] = groupBudgetItems;
-
-            if (currentActiveGroup === '1') budgets.group1 = newTotalGroupBudget;
-            if (currentActiveGroup === '2') budgets.group2 = newTotalGroupBudget;
-            if (currentActiveGroup === '3') budgets.group3 = newTotalGroupBudget;
-            if (currentActiveGroup === '4') budgets.group4 = newTotalGroupBudget;
-            
-            budgets.total = 900000;
-            allBudgets[currentVersion] = budgets;
-
-            let sumAllGroups = budgets.group1 + budgets.group2 + budgets.group3 + budgets.group4;
+            collectItemEdits();
+            const sumAllGroups = budgets.group1 + budgets.group2 + budgets.group3 + budgets.group4;
+            updateVersionDisplay();
+            updateCategoryOptions();
+            saveToCloud(true);
             if (sumAllGroups > 900000) {
                 alert(`⚠️ 柔性警示：目前各組預算總和為 NT$ ${sumAllGroups.toLocaleString()}，已超出固定總經費 NT$ 900,000（超支 NT$ ${(sumAllGroups - 900000).toLocaleString()}）！`);
-            } else {
-                alert('該場次預算項目已更新，並同步至總覽！');
             }
-
-            openGroupDetail(currentActiveGroup);
-            updateCategoryOptions();
-            saveToCloud();
         }
 
         function backToMainView() {
@@ -2248,6 +2310,16 @@
                     statusHtml = `<span style="color: ${sColor}; font-weight: bold;">${esc(t.statusCheck)}</span>`;
                 }
 
+                let catHtml = esc(t.category);
+                if (myRole === 'admin' && (t.flowType === 'expense' || t.flowType === 'advance')) {
+                    const same = (groupBudgetItems[t.group] || []).filter(i => i.category === t.category);
+                    if (same.length > 1) {
+                        const cur = (t.itemId && same.some(i => i.id === t.itemId)) ? t.itemId : same[0].id;
+                        catHtml += `<br><select onchange="updateTxItem(${t.id}, this.value)" style="padding: 2px 6px; font-size: 0.78rem; margin-top: 4px; max-width: 190px;">` +
+                            same.map(i => `<option value="${esc(i.id)}" ${i.id === cur ? 'selected' : ''}>對應：NT$ ${(parseFloat(i.budget) || 0).toLocaleString()}｜${esc((i.note || '').slice(0, 12))}</option>`).join('') + '</select>';
+                    }
+                }
+
                 let imgHtml = '-';
                 if (t.imageUrl) {
                     imgHtml = `
@@ -2262,7 +2334,7 @@
                     <td>${esc(t.date)}</td>
                     <td style="color: ${fColor}; font-weight: bold;">${fText}${payHtml}</td>
                     <td>${gText}</td>
-                    <td>${esc(t.category)}</td>
+                    <td>${catHtml}</td>
                     <td><span style="background: #f1f5f9; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem;">${esc(t.receiptType)}</span></td>
                     <td>${imgHtml}</td>
                     <td>NT$ ${t.amount.toLocaleString()}</td>
