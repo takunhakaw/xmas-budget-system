@@ -356,6 +356,7 @@
                 <button type="button" class="tab-btn" data-tab="list" onclick="showTab('list')">📜 歷史帳目</button>
                 <button type="button" class="tab-btn admin-only" data-tab="analysis" onclick="showTab('analysis')">📈 經費分析</button>
                 <button type="button" class="tab-btn admin-only" data-tab="doccheck" onclick="showTab('doccheck')">📋 簽收核銷</button>
+                <button type="button" class="tab-btn admin-only" data-tab="remit" onclick="showTab('remit')">💸 出納匯款</button>
                 <button type="button" class="tab-btn admin-only" data-tab="admin" onclick="showTab('admin')">🏦 後台管理 <span id="tab-admin-badge" class="new-badge" style="display: none;"></span></button>
             </nav>
 
@@ -572,6 +573,83 @@
                 </div>
             </section>
 
+            <!-- 💸 出納匯款 (僅管理員) -->
+            <section class="form-section admin-only" id="remit-panel" data-tab="remit">
+                <h2>💸 出納匯款（直接匯款給特定對象）</h2>
+                <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 14px;">每一筆都會：①計入所選場次「預算項目」的執行額 ②自動扣除出納專戶 ③出現在歷史帳目、經費分析、LINE 報告與異動紀錄。</p>
+
+                <h3 style="margin-bottom: 8px;">🧭 90萬資金脈絡（目前檢視版本）</h3>
+                <div id="remit-flow" style="margin-bottom: 24px;"></div>
+
+                <h3 style="margin-bottom: 8px;">✍️ 新增一筆出納匯款</h3>
+                <form id="remit-form" onsubmit="submitRemit(event)" style="margin-bottom: 24px;">
+                    <div class="form-grid">
+                        <div class="form-group"><label>場次</label>
+                            <select id="rm-group" onchange="updateRemitItemOptions()">
+                                <option value="1">第一場次 (青年)</option>
+                                <option value="2">第二場次 (松年)</option>
+                                <option value="3">第三場次 (兒童)</option>
+                                <option value="4">第四場次 (主場)</option>
+                            </select></div>
+                        <div class="form-group"><label>經費項目（預算列）</label><select id="rm-item"></select></div>
+                        <div class="form-group"><label>收款人（匯款對象）</label>
+                            <input type="text" id="rm-payee" list="rm-payee-list" maxlength="30" required placeholder="例如：王小明 / ○○音響行">
+                            <datalist id="rm-payee-list"></datalist></div>
+                        <div class="form-group"><label>金額</label><input type="number" id="rm-amount" min="1" required></div>
+                        <div class="form-group"><label>帳目日期</label><input type="date" id="rm-date" required></div>
+                        <div class="form-group"><label>匯款日期</label><input type="date" id="rm-remit-date"></div>
+                        <div class="form-group"><label>匯款單號 / 帳號末五碼</label><input type="text" id="rm-ref" maxlength="40" placeholder="選填"></div>
+                        <div class="form-group"><label>支出類型</label>
+                            <select id="rm-flow">
+                                <option value="expense">支出（核銷）</option>
+                                <option value="advance">支出（預支）</option>
+                            </select></div>
+                        <div class="form-group"><label>憑證類別</label>
+                            <select id="rm-receipt">
+                                <option value="簽收單/印領清冊">簽收單 / 印領清冊</option>
+                                <option value="收據">收據 / 經費領據</option>
+                                <option value="統一發票">統一發票</option>
+                                <option value="免用統一發票收據">免用統一發票收據</option>
+                                <option value="銀行轉帳證明">銀行轉帳證明</option>
+                                <option value="其他證明">其他證明</option>
+                            </select></div>
+                        <div class="form-group"><label>審核狀態</label>
+                            <select id="rm-status">
+                                <option value="正確相符">✓ 正確相符</option>
+                                <option value="待補件/需確認" selected>⚠️ 待補件 / 需確認</option>
+                                <option value="金額有誤">❌ 金額有誤</option>
+                            </select></div>
+                        <div class="form-group" style="grid-column: 1 / -1;"><label>📸 匯款截圖 / 憑證（選填）</label>
+                            <input type="file" id="rm-image" accept="image/*" onchange="handleRemitImage(event)" style="border: none; padding: 4px 0;">
+                            <img id="rm-image-preview" alt="" style="display: none; max-height: 100px; margin-top: 6px; border-radius: 6px; border: 1px solid #cbd5e1;"></div>
+                    </div>
+                    <div class="form-group"><label>備註說明</label><input type="text" id="rm-note" placeholder="選填（例：講師費、音響租金尾款）"></div>
+                    <button type="submit" class="btn-submit">新增出納匯款</button>
+                </form>
+
+                <h3 style="margin-bottom: 8px;">👥 收款人彙總</h3>
+                <div class="table-responsive" style="margin-bottom: 24px;">
+                    <table style="min-width: 640px;">
+                        <thead><tr><th>收款人</th><th>筆數</th><th>匯款合計</th><th>項目明細</th><th>最近匯款日</th></tr></thead>
+                        <tbody id="rm-payee-body"></tbody>
+                    </table>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+                    <h3>📒 出納直接付款明細（可補填收款人／匯款資訊）</h3>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <select id="rm-filter" onchange="renderRemit()" style="max-width: 200px; padding: 8px;"></select>
+                        <button type="button" class="btn-sm btn-success-sm" onclick="exportRemitCsv()">📥 匯出 CSV</button>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table style="min-width: 980px;">
+                        <thead><tr><th>編號</th><th>帳目日</th><th>場次</th><th>項目</th><th>金額</th><th>收款人</th><th>匯款日</th><th>單號/末五碼</th><th>狀態</th></tr></thead>
+                        <tbody id="rm-ledger-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
             <!-- 新增帳目表單 -->
             <section class="form-section" data-tab="form">
                 <h2 id="form-panel-title" onclick="toggleFormPanel()" style="cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 0;">
@@ -699,7 +777,7 @@
             <section class="list-section" data-tab="list">
                 <h2>歷史帳目清單</h2>
                 <div style="display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
-                    <input type="text" id="search-input" placeholder="🔍 搜尋編號、項目或備註..." oninput="render()" style="max-width: 300px;">
+                    <input type="text" id="search-input" placeholder="🔍 搜尋編號、項目、備註或收款人..." oninput="render()" style="max-width: 300px;">
                     <select id="filter-status" onchange="render()" style="max-width: 200px;">
                         <option value="all">所有審核狀態</option>
                         <option value="正確相符">✓ 正確相符</option>
@@ -1664,7 +1742,7 @@
         // skip：計算某下拉選單的可選項時，略過它自己的條件
         function histMatch(t, skip) {
             const kw = (document.getElementById('search-input').value || '').toLowerCase();
-            if (kw && !(t.code + t.category + (t.note || '')).toLowerCase().includes(kw)) return false;
+            if (kw && !(t.code + t.category + (t.note || '') + (t.payee || '')).toLowerCase().includes(kw)) return false;
             const st = document.getElementById('filter-status').value;
             if (st !== 'all' && t.statusCheck !== st) return false;
             const code = document.getElementById('hf-code').value.trim().toLowerCase();
@@ -1713,9 +1791,189 @@
             render();
         }
 
+        // ================= 💸 出納匯款 =================
+        let remitImage = '';
+        const $rm = id => document.getElementById(id);
+        const REMIT_NONE = '（未填收款人）';
+        function isCashierPay(t) { return t.paidBy === 'cashier' && (t.flowType === 'expense' || t.flowType === 'advance'); }
+
+        function handleRemitImage(ev) {
+            const file = ev.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                const img = new Image();
+                img.onload = () => {
+                    const max = 1024; let w = img.width, h = img.height;
+                    if (w > h && w > max) { h = Math.round(h * max / w); w = max; } else if (h > max) { w = Math.round(w * max / h); h = max; }
+                    const c = document.createElement('canvas'); c.width = w; c.height = h;
+                    c.getContext('2d').drawImage(img, 0, 0, w, h);
+                    remitImage = c.toDataURL('image/jpeg', 0.75);
+                    const p = $rm('rm-image-preview'); p.src = remitImage; p.style.display = 'block';
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function updateRemitItemOptions() {
+            const sel = $rm('rm-item'); if (!sel) return;
+            const g = $rm('rm-group').value, cur = sel.value;
+            const items = groupBudgetItems[g] || [], m = buildActualMap(g);
+            sel.innerHTML = items.map(i => {
+                const b = parseFloat(i.budget) || 0;
+                const note = i.note && i.note !== '-' ? '｜' + i.note.slice(0, 14) : '';
+                return `<option value="${esc(i.id)}">${esc(i.category + note)}（預算 ${b.toLocaleString()}｜剩 ${(b - (m.byId[i.id] || 0)).toLocaleString()}）</option>`;
+            }).join('');
+            if (cur && items.some(i => i.id === cur)) sel.value = cur;
+        }
+
+        function submitRemit(e) {
+            e.preventDefault();
+            if (myRole !== 'admin') return;
+            const g = $rm('rm-group').value;
+            const it = (groupBudgetItems[g] || []).find(i => i.id === $rm('rm-item').value);
+            if (!it) { alert('請選擇經費項目'); return; }
+            const amt = parseFloat($rm('rm-amount').value);
+            const payee = $rm('rm-payee').value.trim();
+            if (!(amt > 0)) { alert('請輸入大於 0 的金額'); return; }
+            if (!payee) { alert('請填寫收款人'); return; }
+            const tx = {
+                code: 'XMAS-R-' + Math.floor(100 + Math.random() * 900),
+                date: $rm('rm-date').value, flowType: $rm('rm-flow').value,
+                group: g, category: it.category, itemId: it.id, toGroup: '',
+                receiptType: $rm('rm-receipt').value, imageUrl: remitImage, amount: amt,
+                statusCheck: $rm('rm-status').value, paidBy: 'cashier',
+                payee: payee, remitDate: $rm('rm-remit-date').value || '', remitRef: $rm('rm-ref').value.trim(),
+                note: $rm('rm-note').value
+            };
+            transactions.push(Object.assign({ id: -Date.now() }, tx));
+            saveAndRefresh();
+            checkOverBudgetWarning(g, amt);
+            sendOp({ op: 'addRemit', version: currentVersion, tx: tx });
+            $rm('remit-form').reset();
+            remitImage = ''; $rm('rm-image-preview').style.display = 'none';
+            $rm('rm-date').valueAsDate = new Date();
+            updateRemitItemOptions();
+        }
+
+        function updateRemitInfo(id, field, val) {
+            if (myRole !== 'admin') return;
+            if (id < 0) { alert('這筆資料還在儲存中，請稍候幾秒再修改。'); render(); return; }
+            const tx = transactions.find(t => t.id === id); if (!tx) return;
+            tx[field] = val;
+            saveAndRefresh();
+            sendOp({ op: 'updateRemit', id: id, version: currentVersion, payee: tx.payee || '', remitDate: tx.remitDate || '', remitRef: tx.remitRef || '' });
+        }
+
+        function renderRemit() {
+            const flow = $rm('remit-flow');
+            if (!flow || myRole !== 'admin') return;
+            if (!$rm('rm-date').value) $rm('rm-date').valueAsDate = new Date();
+            if (!$rm('rm-item').options.length) updateRemitItemOptions();
+
+            // ---- 90 萬資金脈絡 ----
+            const keys = ['1', '2', '3', '4'], R = {};
+            keys.forEach(k => R[k] = { trf: 0, sIn: 0, sOut: 0, direct: 0, exp: 0 });
+            let inc = advanceDocTotal(), trfAll = 0, directAll = 0;
+            transactions.forEach(t => {
+                if (t.flowType === 'income') { inc += t.amount; return; }
+                if (t.flowType === 'transfer') { trfAll += t.amount; if (R[t.group]) R[t.group].trf += t.amount; return; }
+                if (t.flowType === 'shift') { if (R[t.group]) R[t.group].sOut += t.amount; if (R[t.toGroup]) R[t.toGroup].sIn += t.amount; return; }
+                if (R[t.group]) R[t.group].exp += t.amount;
+                if (t.paidBy === 'cashier') { directAll += t.amount; if (R[t.group]) R[t.group].direct += t.amount; }
+            });
+            const pool = inc - trfAll - directAll;
+            const bud = { '1': budgets.group1, '2': budgets.group2, '3': budgets.group3, '4': budgets.group4 };
+            let sumB = 0, sumNeed = 0, sumExp = 0, sumTrf = 0, sumShift = 0, sumDir = 0, rows = '';
+            keys.forEach(k => {
+                const r = R[k], b = bud[k] || 0, shiftNet = r.sIn - r.sOut;
+                const need = b - r.trf - shiftNet - r.direct;     // 預算中尚未由出納撥款/代付覆蓋的部分
+                sumB += b; sumNeed += need; sumExp += r.exp; sumTrf += r.trf; sumShift += shiftNet; sumDir += r.direct;
+                rows += `<tr><td style="font-weight:600;">${esc(GROUP_NAME_MAP[k])}</td><td>${fmtMoney(b)}</td><td>${fmtMoney(r.trf)}</td>
+                    <td style="color:#0d9488;">${shiftNet === 0 ? '-' : (shiftNet > 0 ? '+' : '-') + fmtMoney(Math.abs(shiftNet))}</td>
+                    <td style="color:#7c3aed; font-weight:bold;">${fmtMoney(r.direct)}</td>
+                    <td style="color:${need < 0 ? '#dc2626' : '#1e293b'}; font-weight:bold;">${fmtMoney(need)}${need < 0 ? ' (超額)' : ''}</td>
+                    <td>${fmtMoney(r.exp)}</td><td style="color:${b - r.exp < 0 ? '#dc2626' : '#059669'};">${fmtMoney(b - r.exp)}</td></tr>`;
+            });
+            rows += `<tr style="font-weight:bold; background:#f1f5f9;"><td>合計</td><td>${fmtMoney(sumB)}</td><td>${fmtMoney(sumTrf)}</td>
+                <td>${sumShift === 0 ? '-' : fmtMoney(sumShift)}</td><td>${fmtMoney(sumDir)}</td><td>${fmtMoney(sumNeed)}</td><td>${fmtMoney(sumExp)}</td><td>${fmtMoney(sumB - sumExp)}</td></tr>`;
+            const finalBal = pool - sumNeed;
+            flow.innerHTML = `
+                <div class="card-group-row" style="margin-bottom:14px; flex-wrap:wrap;">
+                    <div class="card balance"><h3>總預算（固定）</h3><p>${fmtMoney(900000)}</p><small>各場次已分配 ${fmtMoney(sumB)}｜未分配 ${fmtMoney(900000 - sumB)}</small></div>
+                    <div class="card income"><h3>出納累計收入</h3><p>${fmtMoney(inc)}</p></div>
+                    <div class="card expense" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);"><h3>出納直接匯款（累計）</h3><p>${fmtMoney(directAll)}</p></div>
+                    <div class="card balance" style="background:linear-gradient(135deg,#0284c7,#0369a1);"><h3>出納專戶剩餘</h3><p>${fmtMoney(pool)}</p></div>
+                </div>
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 14px; margin-bottom:12px; font-size:.92rem; line-height:1.8;">
+                    <b>對帳：</b>出納收入 ${fmtMoney(inc)} ＝ 劃撥至場次 ${fmtMoney(trfAll)} ＋ 直接匯款 ${fmtMoney(directAll)} ＋ 專戶剩餘 ${fmtMoney(pool)}
+                    <span style="color:#059669; font-weight:bold;">✓</span><br>
+                    <b>預估：</b>專戶剩餘 ${fmtMoney(pool)} − 預算尚待出納撥付/代付 ${fmtMoney(sumNeed)} ＝
+                    <b style="color:${finalBal < 0 ? '#dc2626' : '#059669'};">${fmtMoney(finalBal)}</b>
+                    ${finalBal < 0 ? '（⚠️ 若各場次預算全數執行，出納資金將有缺口）' : '（各場次預算全數執行後的出納結餘）'}
+                </div>
+                <div class="table-responsive"><table style="min-width:860px;">
+                    <thead><tr><th>場次</th><th>預算</th><th>出納已撥款</th><th>場次間異動(淨)</th><th>出納直接匯款</th><th>預算尚待撥付/代付</th><th>已執行</th><th>預算剩餘</th></tr></thead>
+                    <tbody>${rows}</tbody></table></div>
+                <p style="font-size:.8rem; color:#64748b; margin-top:6px;">「預算尚待撥付/代付」＝ 場次預算 − 已撥款 − 異動淨額 − 出納直接匯款，也就是出納還需要提供給該場次的金額。</p>`;
+
+            // ---- 收款人彙總 ----
+            const list = transactions.filter(isCashierPay), P = {};
+            list.forEach(t => {
+                const p = (t.payee || '').trim() || REMIT_NONE;
+                const o = P[p] || (P[p] = { n: 0, sum: 0, cats: {}, last: '' });
+                o.n++; o.sum += t.amount;
+                const ck = (HF_GROUP_LABEL[t.group] || t.group) + '・' + t.category;
+                o.cats[ck] = (o.cats[ck] || 0) + t.amount;
+                const d = t.remitDate || t.date; if (d > o.last) o.last = d;
+            });
+            const names = Object.keys(P).sort((a, b) => P[b].sum - P[a].sum);
+            $rm('rm-payee-body').innerHTML = names.map(p => {
+                const o = P[p];
+                return `<tr><td style="font-weight:600; ${p === REMIT_NONE ? 'color:#d97706;' : ''}">${esc(p)}</td><td>${o.n}</td><td style="font-weight:bold;">${fmtMoney(o.sum)}</td>
+                    <td style="font-size:.85rem;">${Object.keys(o.cats).map(c => esc(c) + ' ' + fmtMoney(o.cats[c])).join('<br>')}</td><td>${esc(o.last)}</td></tr>`;
+            }).join('') + (names.length ? `<tr style="font-weight:bold; background:#f1f5f9;"><td>合計</td><td>${list.length}</td><td>${fmtMoney(directAll)}</td><td></td><td></td></tr>`
+                : '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">尚無出納匯款紀錄</td></tr>');
+            $rm('rm-payee-list').innerHTML = names.filter(p => p !== REMIT_NONE).map(p => `<option value="${esc(p)}"></option>`).join('');
+
+            // ---- 明細（可補填） ----
+            const fsel = $rm('rm-filter'), fcur = fsel.value;
+            fsel.innerHTML = '<option value="">全部收款人</option>' + names.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+            fsel.value = names.indexOf(fcur) >= 0 ? fcur : '';
+            const shown = list.filter(t => !fsel.value || ((t.payee || '').trim() || REMIT_NONE) === fsel.value)
+                .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+            let sum = 0;
+            $rm('rm-ledger-body').innerHTML = shown.map(t => {
+                sum += t.amount;
+                const sc = t.statusCheck === '正確相符' ? '#10b981' : t.statusCheck === '待補件/需確認' ? '#f59e0b' : '#ef4444';
+                return `<tr><td style="font-weight:600;">${esc(t.code)}</td><td>${esc(t.date)}</td><td>${esc(HF_GROUP_LABEL[t.group] || t.group)}</td><td>${esc(t.category)}</td>
+                    <td style="font-weight:bold;">${fmtMoney(t.amount)}</td>
+                    <td><input type="text" value="${esc(t.payee || '')}" maxlength="30" placeholder="未填" style="padding:6px; min-width:110px;" onchange="updateRemitInfo(${t.id}, 'payee', this.value.trim())"></td>
+                    <td><input type="date" value="${esc(t.remitDate || '')}" style="padding:6px;" onchange="updateRemitInfo(${t.id}, 'remitDate', this.value)"></td>
+                    <td><input type="text" value="${esc(t.remitRef || '')}" maxlength="40" style="padding:6px; min-width:110px;" onchange="updateRemitInfo(${t.id}, 'remitRef', this.value.trim())"></td>
+                    <td style="color:${sc}; font-weight:bold;">${esc(t.statusCheck)}</td></tr>`;
+            }).join('') + (shown.length ? `<tr style="font-weight:bold; background:#f1f5f9;"><td colspan="4">合計（${shown.length} 筆）</td><td>${fmtMoney(sum)}</td><td colspan="4"></td></tr>`
+                : '<tr><td colspan="9" style="text-align:center;color:#94a3b8;">尚無資料</td></tr>');
+        }
+
+        function exportRemitCsv() {
+            const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+            const lines = [['編號', '帳目日期', '場次', '經費項目', '金額', '收款人', '匯款日期', '單號/末五碼', '類型', '審核狀態', '備註'].map(q).join(',')];
+            transactions.filter(isCashierPay).sort((a, b) => String(a.date).localeCompare(String(b.date))).forEach(t => {
+                lines.push([t.code, t.date, HF_GROUP_LABEL[t.group] || t.group, t.category, t.amount, t.payee || '', t.remitDate || '', t.remitRef || '',
+                    t.flowType === 'advance' ? '預支' : '核銷', t.statusCheck, t.note || ''].map(q).join(','));
+            });
+            const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `115聖誕節_出納匯款明細_${new Date().toISOString().slice(0, 10)}.csv`;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        }
+
         // ---------- 頁籤切換 ----------
         const LS_TAB = 'xmas115_tab';
-        const ADMIN_TABS = ['budget', 'analysis', 'doccheck', 'admin'];
+        const ADMIN_TABS = ['budget', 'analysis', 'doccheck', 'remit', 'admin'];
         let currentTab = 'overview';
         function showTab(name, toTop) {
             if (myRole !== 'admin' && ADMIN_TABS.indexOf(name) >= 0) name = 'overview';
@@ -1759,6 +2017,7 @@
             const tx = transactions.find(t => t.id === id);
             if (!tx) return;
             tx.paidBy = val;
+            if (val === 'self') { tx.payee = ''; tx.remitRef = ''; tx.remitDate = ''; }   // 與後端一致：改回場次付款即清掉收款資訊
             saveAndRefresh();
             sendOp({ op: 'updatePay', id: id, version: currentVersion, paidBy: val });
         }
@@ -2154,12 +2413,15 @@
                 }
             });
             totalInc += advanceDocTotal();
+            const directPaid = transactions.filter(isCashierPay).reduce((s, t) => s + t.amount, 0);
             const vName = versionSelect.options[versionSelect.selectedIndex].text;
             const text = `📊【115年聯合聖誕節經費動向回報 - ${vName}】\n` +
                 `• 總預算: NT$ 900,000 (固定)\n` +
                 `• 總代墊/收入: NT$ ${totalInc.toLocaleString()}\n` +
                 `• 已總支出: NT$ ${totalExp.toLocaleString()}\n` +
-                `• 目前結餘: NT$ ${(totalInc - totalExp).toLocaleString()}\n\n` +
+                `• 目前結餘: NT$ ${(totalInc - totalExp).toLocaleString()}\n` +
+                `• 出納直接匯款: NT$ ${directPaid.toLocaleString()}\n` +
+                `• 出納專戶剩餘: NT$ ${cashierPoolBalance().toLocaleString()}\n\n` +
                 `🔹 各場次執行情形:\n` +
                 `1. 青年場: NT$ ${g1Exp.toLocaleString()} / 預算 ${budgets.group1.toLocaleString()} (剩 NT$ ${(budgets.group1 - g1Exp).toLocaleString()})\n` +
                 `2. 松年場: NT$ ${g2Exp.toLocaleString()} / 預算 ${budgets.group2.toLocaleString()} (剩 NT$ ${(budgets.group2 - g2Exp).toLocaleString()})\n` +
@@ -2374,6 +2636,9 @@
                         payHtml = '<br><span style="font-size: 0.78rem; color: #7c3aed;">🏦 出納直付</span>';
                     }
                 }
+                if (isCashierPay(t) && t.payee) {
+                    payHtml += `<br><span style="font-size:.78rem; color:#7c3aed;">💸 匯給 ${esc(t.payee)}${t.remitDate ? '（' + esc(t.remitDate) + '）' : ''}</span>`;
+                }
                 let fText = t.flowType === 'income' ? '代墊/收入' : t.flowType === 'transfer' ? '↗️ 場次劃撥' : t.flowType === 'shift' ? '🔁 場次間異動' : t.flowType === 'expense' ? '支出核銷' : '預支';
                 let fColor = t.flowType === 'income' ? '#10b981' : t.flowType === 'transfer' ? '#0284c7' : t.flowType === 'shift' ? '#0d9488' : t.flowType === 'expense' ? '#ef4444' : '#f59e0b';
                 let gText = t.flowType === 'shift' ? `${HF_GROUP_LABEL[t.group] || t.group} → ${HF_GROUP_LABEL[t.toGroup] || t.toGroup}` : t.group === '1' ? '青年場' : t.group === '2' ? '松年場' : t.group === '3' ? '兒童場' : t.group === '4' ? '主場' : '出納專戶';
@@ -2498,6 +2763,7 @@
             renderAnalysis();
             renderMyBudget();
             renderDocChecks();
+            renderRemit();
             updateHistFilterOptions();
         }
 
