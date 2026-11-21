@@ -386,8 +386,9 @@
                         <small id="cashier-income-note" style="display: block; opacity: 0.85; font-size: 0.75rem; margin-top: 4px;"></small>
                     </div>
                     <div class="card expense" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
-                        <h3>已劃撥至各場次</h3>
+                        <h3>已劃撥至各場次（淨額）</h3>
                         <p id="cashier-transferred">NT$ 0</p>
+                        <small id="cashier-transfer-note" style="display: block; opacity: 0.85; font-size: 0.75rem; margin-top: 4px;"></small>
                     </div>
                     <div class="card expense" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
                         <h3>出納直接代付支出</h3>
@@ -406,7 +407,7 @@
                             <tr>
                                 <th>場次名稱</th>
                                 <th>分配預算</th>
-                                <th>出納已撥款金額</th>
+                                <th>出納已撥款（扣除退回）</th>
                                 <th>場次款項支出</th>
                                 <th>🏦 出納直接代付</th>
                                 <th>🔁 場次間異動（轉入／轉出）</th>
@@ -644,7 +645,7 @@
                 </div>
                 <div class="table-responsive">
                     <table style="min-width: 980px;">
-                        <thead><tr><th>編號</th><th>帳目日</th><th>場次</th><th>項目</th><th>金額</th><th>收款人</th><th>匯款日</th><th>單號/末五碼</th><th>狀態</th></tr></thead>
+                        <thead><tr><th>編號</th><th>帳目日</th><th>場次</th><th>項目</th><th>金額</th><th>收款人</th><th>匯款日</th><th>單號/末五碼</th><th>狀態</th><th>操作</th></tr></thead>
                         <tbody id="rm-ledger-body"></tbody>
                     </table>
                 </div>
@@ -706,6 +707,7 @@
                                 <option value="income">1. 統一收入 (23間教會代墊款/奉獻)</option>
                                 <option value="transfer">2. 場次劃撥 (出納專戶撥款至場次)</option>
                                 <option value="shift">2-1. 場次間費用異動 (A場次轉出 → B場次轉入)</option>
+                                <option value="return">2-2. 場次退回出納 (預撥款未用完，場次退回出納專戶)</option>
                                 <option value="expense" selected>3. 支出架構 (核銷)</option>
                                 <option value="advance">4. 支出架構 (預支)</option>
                             </select>
@@ -878,6 +880,66 @@
             <div id="login-msg" class="login-msg"></div>
             <button type="submit" class="btn-submit" style="width:100%; padding:12px;">登入</button>
         </form>
+    </div>
+
+    <!-- ✏️ 修改帳目視窗 -->
+    <div id="edit-modal" style="display: none; position: fixed; inset: 0; background: rgba(15,23,42,0.7); z-index: 3500; align-items: flex-start; justify-content: center; padding: 16px; overflow: auto;" onclick="closeEditModal()">
+        <div onclick="event.stopPropagation()" style="background: #fff; border-radius: 14px; padding: 22px; width: 100%; max-width: 680px; margin: auto;">
+            <h2 id="edit-title" style="margin-bottom: 14px;">✏️ 修改帳目</h2>
+            <form id="edit-form" onsubmit="submitEdit(event)">
+                <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));">
+                    <div class="form-group"><label>編號</label><input type="text" id="ed-code" maxlength="40"></div>
+                    <div class="form-group"><label>日期</label><input type="date" id="ed-date" required></div>
+                    <div class="form-group admin-only"><label id="ed-group-label">場次</label><select id="ed-group" onchange="edGroupChanged()"></select></div>
+                    <div class="form-group" id="ed-togroup-wrap" style="display: none;"><label>轉入場次</label><select id="ed-togroup"></select></div>
+                    <div class="form-group" id="ed-item-wrap"><label>經費項目（預算列）</label><select id="ed-item"></select></div>
+                    <div class="form-group" id="ed-cat-wrap" style="display: none;"><label>說明 / 類別</label><input type="text" id="ed-custom" maxlength="60"></div>
+                    <div class="form-group"><label>金額</label><input type="number" id="ed-amount" min="0" required></div>
+                    <div class="form-group"><label>收據類別</label>
+                        <select id="ed-receipt">
+                            <option value="統一發票">統一發票</option>
+                            <option value="收據">收據 / 經費領據</option>
+                            <option value="免用統一發票收據">免用統一發票收據</option>
+                            <option value="簽收單/印領清冊">簽收單 / 印領清冊</option>
+                            <option value="銀行轉帳證明">銀行轉帳證明</option>
+                            <option value="其他證明">其他證明</option>
+                        </select></div>
+                    <div class="form-group admin-only"><label>審核狀態</label>
+                        <select id="ed-status">
+                            <option value="正確相符">✓ 正確相符</option>
+                            <option value="待補件/需確認">⚠️ 待補件 / 需確認</option>
+                            <option value="金額有誤">❌ 金額有誤</option>
+                        </select></div>
+                    <div class="form-group admin-only" id="ed-paid-wrap"><label>付款方式</label>
+                        <select id="ed-paid" onchange="edPaidChanged()">
+                            <option value="self">場次款項支付</option>
+                            <option value="cashier">🏦 出納直接付款</option>
+                        </select></div>
+                </div>
+                <div id="ed-remit-wrap" class="admin-only" style="display: none;">
+                    <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));">
+                        <div class="form-group"><label>收款人</label><input type="text" id="ed-payee" maxlength="30"></div>
+                        <div class="form-group"><label>匯款日期</label><input type="date" id="ed-remit-date"></div>
+                        <div class="form-group"><label>匯款單號 / 帳號末五碼</label><input type="text" id="ed-ref" maxlength="40"></div>
+                    </div>
+                </div>
+                <div class="form-group"><label>備註說明</label><input type="text" id="ed-note" maxlength="200"></div>
+                <div class="form-group" style="background: #f0fdf4; border: 1px dashed #22c55e; padding: 10px; border-radius: 8px;">
+                    <label style="color: #15803d;">📸 憑證照片</label>
+                    <div id="ed-img-current" style="display: none; align-items: center; gap: 10px; margin-bottom: 6px;">
+                        <img id="ed-img-cur-thumb" alt="目前憑證" style="max-height: 80px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                        <label style="margin: 0; display: flex; align-items: center; gap: 6px; font-weight: 600; color: #dc2626;"><input type="checkbox" id="ed-img-remove" style="width: 18px; height: 18px;"> 移除目前憑證</label>
+                    </div>
+                    <input type="file" id="ed-image" accept="image/*" onchange="handleEditImage(event)" style="border: none; padding: 4px 0;">
+                    <img id="ed-img-new" alt="新憑證預覽" style="display: none; max-height: 80px; margin-top: 6px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                </div>
+                <p style="font-size: 0.82rem; color: #64748b; margin-bottom: 12px;">交易類型不能更改；若類型選錯，請刪除後重新新增。所有修改都會記錄在異動紀錄中。</p>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" class="btn-sm" style="background: #94a3b8; padding: 10px 18px;" onclick="closeEditModal()">取消</button>
+                    <button type="submit" class="btn-submit">💾 儲存修改</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <!-- 🔍 Lightbox 憑證燈箱大圖檢視視窗 -->
@@ -1132,7 +1194,7 @@
         }
 
         document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') closeImageModal();
+            if (e.key === 'Escape') { closeImageModal(); closeEditModal(); }
         });
 
         // ---------- 登入 ----------
@@ -1736,8 +1798,10 @@
         }
 
         // ---------- 🔎 歷史帳目交叉篩選 ----------
-        const HF_FLOW_LABEL = { income: '代墊/收入', transfer: '場次劃撥', shift: '場次間異動', expense: '支出核銷', advance: '預支' };
+        const HF_FLOW_LABEL = { income: '代墊/收入', transfer: '場次劃撥', return: '場次退回出納', shift: '場次間異動', expense: '支出核銷', advance: '預支' };
         const HF_GROUP_LABEL = { '1': '青年場', '2': '松年場', '3': '兒童場', '4': '主場', 'none': '出納專戶' };
+
+        function flowKey(t) { return (t.flowType === 'transfer' && t.isReturn) ? 'return' : t.flowType; }
 
         // skip：計算某下拉選單的可選項時，略過它自己的條件
         function histMatch(t, skip) {
@@ -1751,7 +1815,7 @@
             if (from && String(t.date) < from) return false;
             if (to && String(t.date) > to) return false;
             const flow = document.getElementById('hf-flow').value;
-            if (skip !== 'flow' && flow && t.flowType !== flow) return false;
+            if (skip !== 'flow' && flow && flowKey(t) !== flow) return false;
             const grp = document.getElementById('hf-group').value;
             if (skip !== 'group' && grp && t.group !== grp && t.toGroup !== grp) return false;
             const cat = document.getElementById('hf-cat').value;
@@ -1775,7 +1839,7 @@
 
         function updateHistFilterOptions() {
             if (!document.getElementById('hf-flow')) return;
-            fillHistSelect('hf-flow', 'flow', t => t.flowType, k => HF_FLOW_LABEL[k] || k, ['income', 'transfer', 'shift', 'expense', 'advance']);
+            fillHistSelect('hf-flow', 'flow', t => flowKey(t), k => HF_FLOW_LABEL[k] || k, ['income', 'transfer', 'return', 'shift', 'expense', 'advance']);
             fillHistSelect('hf-group', 'group', t => t.group, k => HF_GROUP_LABEL[k] || k, ['1', '2', '3', '4', 'none']);
             fillHistSelect('hf-cat', 'cat', t => t.category, k => k, null);
             const codes = [];
@@ -1877,7 +1941,7 @@
             let inc = advanceDocTotal(), trfAll = 0, directAll = 0;
             transactions.forEach(t => {
                 if (t.flowType === 'income') { inc += t.amount; return; }
-                if (t.flowType === 'transfer') { trfAll += t.amount; if (R[t.group]) R[t.group].trf += t.amount; return; }
+                if (t.flowType === 'transfer') { const v = t.isReturn ? -t.amount : t.amount; trfAll += v; if (R[t.group]) R[t.group].trf += v; return; }
                 if (t.flowType === 'shift') { if (R[t.group]) R[t.group].sOut += t.amount; if (R[t.toGroup]) R[t.toGroup].sIn += t.amount; return; }
                 if (R[t.group]) R[t.group].exp += t.amount;
                 if (t.paidBy === 'cashier') { directAll += t.amount; if (R[t.group]) R[t.group].direct += t.amount; }
@@ -1906,7 +1970,7 @@
                     <div class="card balance" style="background:linear-gradient(135deg,#0284c7,#0369a1);"><h3>出納專戶剩餘</h3><p>${fmtMoney(pool)}</p></div>
                 </div>
                 <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 14px; margin-bottom:12px; font-size:.92rem; line-height:1.8;">
-                    <b>對帳：</b>出納收入 ${fmtMoney(inc)} ＝ 劃撥至場次 ${fmtMoney(trfAll)} ＋ 直接匯款 ${fmtMoney(directAll)} ＋ 專戶剩餘 ${fmtMoney(pool)}
+                    <b>對帳：</b>出納收入 ${fmtMoney(inc)} ＝ 劃撥至場次（已扣除退回）${fmtMoney(trfAll)} ＋ 直接匯款 ${fmtMoney(directAll)} ＋ 專戶剩餘 ${fmtMoney(pool)}
                     <span style="color:#059669; font-weight:bold;">✓</span><br>
                     <b>預估：</b>專戶剩餘 ${fmtMoney(pool)} − 預算尚待出納撥付/代付 ${fmtMoney(sumNeed)} ＝
                     <b style="color:${finalBal < 0 ? '#dc2626' : '#059669'};">${fmtMoney(finalBal)}</b>
@@ -1951,9 +2015,10 @@
                     <td><input type="text" value="${esc(t.payee || '')}" maxlength="30" placeholder="未填" style="padding:6px; min-width:110px;" onchange="updateRemitInfo(${t.id}, 'payee', this.value.trim())"></td>
                     <td><input type="date" value="${esc(t.remitDate || '')}" style="padding:6px;" onchange="updateRemitInfo(${t.id}, 'remitDate', this.value)"></td>
                     <td><input type="text" value="${esc(t.remitRef || '')}" maxlength="40" style="padding:6px; min-width:110px;" onchange="updateRemitInfo(${t.id}, 'remitRef', this.value.trim())"></td>
-                    <td style="color:${sc}; font-weight:bold;">${esc(t.statusCheck)}</td></tr>`;
-            }).join('') + (shown.length ? `<tr style="font-weight:bold; background:#f1f5f9;"><td colspan="4">合計（${shown.length} 筆）</td><td>${fmtMoney(sum)}</td><td colspan="4"></td></tr>`
-                : '<tr><td colspan="9" style="text-align:center;color:#94a3b8;">尚無資料</td></tr>');
+                    <td style="color:${sc}; font-weight:bold;">${esc(t.statusCheck)}</td>
+                    <td><button type="button" class="btn-sm btn-primary-sm" style="padding:6px 10px;" onclick="openEditModal(${t.id})">✏️ 修改</button></td></tr>`;
+            }).join('') + (shown.length ? `<tr style="font-weight:bold; background:#f1f5f9;"><td colspan="4">合計（${shown.length} 筆）</td><td>${fmtMoney(sum)}</td><td colspan="5"></td></tr>`
+                : '<tr><td colspan="10" style="text-align:center;color:#94a3b8;">尚無資料</td></tr>');
         }
 
         function exportRemitCsv() {
@@ -1969,6 +2034,169 @@
             a.download = `115聖誕節_出納匯款明細_${new Date().toISOString().slice(0, 10)}.csv`;
             document.body.appendChild(a); a.click(); a.remove();
             setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        }
+
+        // ================= ✏️ 修改帳目 =================
+        let editingId = null, editImage;   // editImage：undefined＝不變、''＝移除、字串＝新照片
+        const ED = id => document.getElementById(id);
+        const FLOW_FULL_NAME = { income: '代墊/收入', transfer: '場次劃撥', 'return': '場次退回出納', shift: '場次間異動', expense: '支出核銷', advance: '預支' };
+        function isExec(t) { return t.flowType === 'expense' || t.flowType === 'advance'; }
+        function isRet(t) { return t.flowType === 'transfer' && t.isReturn === true; }
+
+        // 各組會計：只能改本組「支出/預支/場次退回」，且狀態不是「正確相符」
+        function canGroupEdit(t) {
+            return t.group === myGroup && (isExec(t) || isRet(t)) && t.statusCheck !== '正確相符';
+        }
+
+        function edRefreshItems(t) {
+            const g = myRole === 'admin' ? ED('ed-group').value : t.group;
+            const items = groupBudgetItems[g] || [];
+            const keep = ED('ed-item').value;
+            let pick = keep && items.some(i => i.id === keep) ? keep : '';
+            if (!pick) {
+                if (g === t.group && t.itemId && items.some(i => i.id === t.itemId)) pick = t.itemId;
+                else { const same = items.find(i => i.category === t.category); pick = same ? same.id : (items[0] ? items[0].id : ''); }
+            }
+            ED('ed-item').innerHTML = items.map(i => {
+                const note = i.note && i.note !== '-' ? '｜' + i.note.slice(0, 14) : '';
+                return `<option value="${esc(i.id)}">${esc(i.category + note)}（預算 ${(parseFloat(i.budget) || 0).toLocaleString()}）</option>`;
+            }).join('');
+            if (pick) ED('ed-item').value = pick;
+        }
+
+        function edRefreshToGroup(t) {
+            const from = myRole === 'admin' ? ED('ed-group').value : t.group;
+            const cur = ED('ed-togroup').value || t.toGroup;
+            ED('ed-togroup').innerHTML = ['1', '2', '3', '4'].filter(x => x !== from)
+                .map(x => `<option value="${x}">${esc(GROUP_NAME_MAP[x])}</option>`).join('');
+            if (cur && cur !== from) ED('ed-togroup').value = cur;
+        }
+
+        function edGroupChanged() {
+            const t = transactions.find(x => x.id === editingId); if (!t) return;
+            if (isExec(t)) edRefreshItems(t);
+            if (t.flowType === 'shift') edRefreshToGroup(t);
+        }
+
+        function edPaidChanged() {
+            ED('ed-remit-wrap').style.display = ED('ed-paid').value === 'cashier' ? 'block' : 'none';
+        }
+
+        function openEditModal(id) {
+            if (id < 0) { alert('這筆資料還在儲存中，請稍候幾秒再修改。'); return; }
+            const t = transactions.find(x => x.id === id); if (!t) return;
+            if (myRole === 'group' && !canGroupEdit(t)) { alert('這筆帳目已核對為「正確相符」，或不是本組可修改的類型，無法修改。'); return; }
+            editingId = id; editImage = undefined;
+            ED('edit-title').textContent = `✏️ 修改帳目（${FLOW_FULL_NAME[isRet(t) ? 'return' : t.flowType] || t.flowType}）`;
+            ED('ed-code').value = t.code || '';
+            ED('ed-date').value = t.date || '';
+            ED('ed-amount').value = t.amount;
+            ED('ed-receipt').value = t.receiptType || '其他證明';
+            ED('ed-status').value = t.statusCheck;
+            ED('ed-note').value = t.note || '';
+
+            const fixed = isExec(t) || t.flowType === 'shift' || isRet(t);
+            ED('ed-group').innerHTML = (fixed ? ['1', '2', '3', '4'] : ['none', '1', '2', '3', '4'])
+                .map(x => `<option value="${x}">${esc(GROUP_NAME_MAP[x])}</option>`).join('');
+            ED('ed-group').value = t.group;
+            ED('ed-group-label').textContent = t.flowType === 'shift' ? '轉出場次' : isRet(t) ? '退回場次（款項來源）' : '場次';
+
+            ED('ed-togroup-wrap').style.display = t.flowType === 'shift' ? 'block' : 'none';
+            ED('ed-togroup').innerHTML = '';
+            if (t.flowType === 'shift') edRefreshToGroup(t);
+
+            ED('ed-item-wrap').style.display = isExec(t) ? 'block' : 'none';
+            ED('ed-cat-wrap').style.display = isExec(t) ? 'none' : 'block';
+            ED('ed-custom').value = isExec(t) ? '' : (t.category || '');
+            ED('ed-item').innerHTML = '';
+            if (isExec(t)) edRefreshItems(t);
+
+            ED('ed-paid-wrap').style.display = isExec(t) ? 'block' : 'none';
+            ED('ed-paid').value = t.paidBy === 'cashier' ? 'cashier' : 'self';
+            ED('ed-payee').value = t.payee || '';
+            ED('ed-remit-date').value = t.remitDate || '';
+            ED('ed-ref').value = t.remitRef || '';
+            ED('ed-remit-wrap').style.display = (isExec(t) && t.paidBy === 'cashier') ? 'block' : 'none';
+
+            ED('ed-image').value = '';
+            ED('ed-img-new').style.display = 'none';
+            ED('ed-img-remove').checked = false;
+            if (t.imageUrl) { ED('ed-img-cur-thumb').src = t.imageUrl; ED('ed-img-current').style.display = 'flex'; }
+            else ED('ed-img-current').style.display = 'none';
+
+            ED('edit-modal').style.display = 'flex';
+        }
+
+        function closeEditModal() {
+            const m = document.getElementById('edit-modal');
+            if (m) m.style.display = 'none';
+            editingId = null; editImage = undefined;
+        }
+
+        function handleEditImage(ev) {
+            const file = ev.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                const img = new Image();
+                img.onload = () => {
+                    const max = 1024; let w = img.width, h = img.height;
+                    if (w > h && w > max) { h = Math.round(h * max / w); w = max; } else if (h > max) { w = Math.round(w * max / h); h = max; }
+                    const c = document.createElement('canvas'); c.width = w; c.height = h;
+                    c.getContext('2d').drawImage(img, 0, 0, w, h);
+                    editImage = c.toDataURL('image/jpeg', 0.75);
+                    ED('ed-img-new').src = editImage; ED('ed-img-new').style.display = 'block';
+                    ED('ed-img-remove').checked = false;
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function submitEdit(e) {
+            e.preventDefault();
+            const t = transactions.find(x => x.id === editingId);
+            if (!t) { closeEditModal(); return; }
+            const isAdmin = myRole === 'admin';
+            const amt = parseFloat(ED('ed-amount').value);
+            if (!(amt >= 0)) { alert('請輸入正確的金額'); return; }
+            if (!ED('ed-date').value) { alert('請選擇日期'); return; }
+            const g = isAdmin ? ED('ed-group').value : t.group;
+            const patch = {
+                code: ED('ed-code').value.trim() || t.code,
+                date: ED('ed-date').value, amount: amt,
+                receiptType: ED('ed-receipt').value, note: ED('ed-note').value
+            };
+            if (isAdmin) { patch.group = g; patch.statusCheck = ED('ed-status').value; }
+            if (isExec(t)) {
+                const it = (groupBudgetItems[g] || []).find(i => i.id === ED('ed-item').value);
+                if (!it) { alert('請選擇經費項目'); return; }
+                patch.itemId = it.id; patch.category = it.category;
+                if (isAdmin) {
+                    patch.paidBy = ED('ed-paid').value;
+                    if (patch.paidBy === 'cashier') {
+                        patch.payee = ED('ed-payee').value.trim();
+                        patch.remitDate = ED('ed-remit-date').value || '';
+                        patch.remitRef = ED('ed-ref').value.trim();
+                    } else { patch.payee = ''; patch.remitDate = ''; patch.remitRef = ''; }
+                }
+            } else {
+                const c = ED('ed-custom').value.trim();
+                if (!c) { alert('請填寫說明 / 類別'); return; }
+                patch.category = c;
+            }
+            if (t.flowType === 'shift') {
+                const to = ED('ed-togroup').value;
+                if (!to || to === g) { alert('轉入場次必須不同於轉出場次'); return; }
+                patch.toGroup = to;
+            }
+            if (editImage !== undefined) patch.imageUrl = editImage;
+            else if (ED('ed-img-remove').checked) patch.imageUrl = '';
+
+            Object.assign(t, patch);
+            saveAndRefresh();
+            if (isExec(t)) checkOverBudgetWarning(g, amt);
+            sendOp({ op: 'updateTx', id: t.id, version: currentVersion, patch: patch });
+            closeEditModal();
         }
 
         // ---------- 頁籤切換 ----------
@@ -1997,7 +2225,7 @@
             let inc = 0, trf = 0, direct = 0;
             transactions.forEach(t => {
                 if (t.flowType === 'income') inc += t.amount;
-                else if (t.flowType === 'transfer') trf += t.amount;
+                else if (t.flowType === 'transfer') trf += t.isReturn ? -t.amount : t.amount;
                 else if (t.flowType === 'shift') { /* 場次間異動不動用出納專戶 */ }
                 else if (t.paidBy === 'cashier') direct += t.amount;
             });
@@ -2096,7 +2324,7 @@
             updatePayHint();
             const isShift = type === 'shift';
             document.getElementById('to-group-wrap').style.display = isShift ? 'block' : 'none';
-            document.getElementById('group-label').textContent = isShift ? '轉出場次（支出方）' : '場次歸屬';
+            document.getElementById('group-label').textContent = isShift ? '轉出場次（支出方）' : type === 'return' ? '退回場次（款項退回出納）' : '場次歸屬';
             if (isShift) refreshToGroupOptions();
             if (type === 'income') {
                 categorySelect.style.display = 'none';
@@ -2104,10 +2332,10 @@
                 customCategoryInput.placeholder = '例如：奎輝教會代墊款 / 奉獻收入';
                 customCategoryInput.required = true;
                 categorySelect.required = false;
-            } else if (type === 'transfer' || type === 'shift') {
+            } else if (type === 'transfer' || type === 'shift' || type === 'return') {
                 categorySelect.style.display = 'none';
                 customCategoryInput.style.display = 'block';
-                customCategoryInput.placeholder = isShift ? '異動說明 (例: 青年場撥補主場音響租金)' : '劃撥說明 (例: 出納撥付青年場第一期經費)';
+                customCategoryInput.placeholder = isShift ? '異動說明 (例: 青年場撥補主場音響租金)' : type === 'return' ? '退回說明 (例: 青年場退回未使用之預撥款)' : '劃撥說明 (例: 出納撥付青年場第一期經費)';
                 customCategoryInput.required = true;
                 categorySelect.required = false;
             } else {
@@ -2275,7 +2503,7 @@
         }
 
         function updateCategoryOptions() {
-            if (flowTypeSelect.value === 'income' || flowTypeSelect.value === 'transfer' || flowTypeSelect.value === 'shift') return;
+            if (flowTypeSelect.value === 'income' || flowTypeSelect.value === 'transfer' || flowTypeSelect.value === 'shift' || flowTypeSelect.value === 'return') return;
             const gKey = groupSelect.value in groupBudgetItems ? groupSelect.value : 'none';
             const items = groupBudgetItems[gKey];
             const m = buildActualMap(gKey);
@@ -2300,12 +2528,13 @@
             const flow = flowTypeSelect.value;
             let catValue, itemId = '';
             let toG = '';
+            if (flow === 'return' && ['1', '2', '3', '4'].indexOf(gKey) < 0) { alert('場次退回出納請選擇「退回場次」（第一～四場次）'); return; }
             if (flow === 'shift') {
                 toG = document.getElementById('to-group').value;
                 if (['1', '2', '3', '4'].indexOf(gKey) < 0) { alert('場次間異動請選擇「轉出場次」（第一～四場次）'); return; }
                 if (!toG || toG === gKey) { alert('請選擇不同於轉出場次的「轉入場次」'); return; }
             }
-            if (flow === 'income' || flow === 'transfer' || flow === 'shift') {
+            if (flow === 'income' || flow === 'transfer' || flow === 'shift' || flow === 'return') {
                 catValue = customCategoryInput.value.trim();
             } else {
                 itemId = categorySelect.value;
@@ -2319,11 +2548,12 @@
                 id: Date.now(),
                 code: document.getElementById('code').value,
                 date: document.getElementById('date').value,
-                flowType: flow,
+                flowType: flow === 'return' ? 'transfer' : flow,
                 group: gKey,
                 category: catValue,
                 itemId: itemId,
                 toGroup: toG,
+                isReturn: flow === 'return',
                 receiptType: document.getElementById('receipt-type').value,
                 imageUrl: currentBase64Image,
                 amount: amt,
@@ -2337,6 +2567,7 @@
             const sent = Object.assign({}, newTx); delete sent.id;
             saveAndRefresh();
             checkOverBudgetWarning(gKey, amt);
+            if (flow === 'return') checkReturnWarning(gKey);
             sendOp({ op: 'addTx', version: currentVersion, tx: sent });
 
             form.reset();
@@ -2346,6 +2577,21 @@
             handleFlowTypeChange();
             updateFormRemainHint();
         });
+
+        // 場次手上的撥款餘額 = 出納撥款(扣退回) + 異動淨額 − 場次款項支出
+        function groupHeldFunds(g) {
+            let trf = 0, sIn = 0, sOut = 0, exp = 0, direct = 0;
+            transactions.forEach(t => {
+                if (t.flowType === 'transfer') { if (t.group === g) trf += t.isReturn ? -t.amount : t.amount; }
+                else if (t.flowType === 'shift') { if (t.group === g) sOut += t.amount; if (t.toGroup === g) sIn += t.amount; }
+                else if (t.flowType !== 'income' && t.group === g) { exp += t.amount; if (t.paidBy === 'cashier') direct += t.amount; }
+            });
+            return trf + sIn - sOut - (exp - direct);
+        }
+        function checkReturnWarning(g) {
+            const held = groupHeldFunds(g);
+            if (held < 0) alert(`⚠️ 柔性警示：${GROUP_NAME_MAP[g]} 退回後，場次手上的撥款餘額為 NT$ ${held.toLocaleString()}（負數），請確認是否退回過多或漏記支出。\n\n(系統已順利記錄，操作未被阻止)`);
+        }
 
         function checkOverBudgetWarning(gKey, newAmount) {
             let totalExp = 0;
@@ -2599,7 +2845,7 @@
 
             transactionList.innerHTML = '';
             let totalInc = 0, totalExp = 0;
-            let cashierIncome = 0, cashierTransferred = 0, cashierDirect = 0;
+            let cashierIncome = 0, cashierTransferred = 0, cashierDirect = 0, cashierReturned = 0;
             let gTransfer = { '1': 0, '2': 0, '3': 0, '4': 0 };
             let gDirect = { '1': 0, '2': 0, '3': 0, '4': 0 };
             let gExp = { '1': 0, '2': 0, '3': 0, '4': 0 };
@@ -2611,8 +2857,9 @@
                     totalInc += t.amount;
                     cashierIncome += t.amount;
                 } else if (t.flowType === 'transfer') {
-                    cashierTransferred += t.amount;
-                    if (t.group in gTransfer) gTransfer[t.group] += t.amount;
+                    cashierTransferred += t.isReturn ? -t.amount : t.amount;
+                    if (t.isReturn) cashierReturned += t.amount;
+                    if (t.group in gTransfer) gTransfer[t.group] += t.isReturn ? -t.amount : t.amount;
                 } else if (t.flowType === 'shift') {
                     if (t.group in gShiftOut) gShiftOut[t.group] += t.amount;
                     if (t.toGroup in gShiftIn) gShiftIn[t.toGroup] += t.amount;
@@ -2639,8 +2886,8 @@
                 if (isCashierPay(t) && t.payee) {
                     payHtml += `<br><span style="font-size:.78rem; color:#7c3aed;">💸 匯給 ${esc(t.payee)}${t.remitDate ? '（' + esc(t.remitDate) + '）' : ''}</span>`;
                 }
-                let fText = t.flowType === 'income' ? '代墊/收入' : t.flowType === 'transfer' ? '↗️ 場次劃撥' : t.flowType === 'shift' ? '🔁 場次間異動' : t.flowType === 'expense' ? '支出核銷' : '預支';
-                let fColor = t.flowType === 'income' ? '#10b981' : t.flowType === 'transfer' ? '#0284c7' : t.flowType === 'shift' ? '#0d9488' : t.flowType === 'expense' ? '#ef4444' : '#f59e0b';
+                let fText = t.flowType === 'income' ? '代墊/收入' : t.flowType === 'transfer' ? (t.isReturn ? '↩️ 場次退回出納' : '↗️ 場次劃撥') : t.flowType === 'shift' ? '🔁 場次間異動' : t.flowType === 'expense' ? '支出核銷' : '預支';
+                let fColor = t.flowType === 'income' ? '#10b981' : t.flowType === 'transfer' ? (t.isReturn ? '#d97706' : '#0284c7') : t.flowType === 'shift' ? '#0d9488' : t.flowType === 'expense' ? '#ef4444' : '#f59e0b';
                 let gText = t.flowType === 'shift' ? `${HF_GROUP_LABEL[t.group] || t.group} → ${HF_GROUP_LABEL[t.toGroup] || t.toGroup}` : t.group === '1' ? '青年場' : t.group === '2' ? '松年場' : t.group === '3' ? '兒童場' : t.group === '4' ? '主場' : '出納專戶';
                 let sColor = t.statusCheck === '正確相符' ? '#10b981' : t.statusCheck === '待補件/需確認' ? '#f59e0b' : '#ef4444';
 
@@ -2687,7 +2934,7 @@
                     <td>NT$ ${t.amount.toLocaleString()}</td>
                     <td>${statusHtml}</td>
                     <td>${esc(t.note || '-')}</td>
-                    <td>${(myRole === 'group' && t.group !== myGroup) ? '<span style="color:#94a3b8; font-size:.8rem;">對方場次建立</span>' : `<button class="btn-delete" onclick="deleteTransaction(${t.id})">刪除</button>`}</td>
+                    <td style="white-space:nowrap;">${(myRole === 'group' && t.group !== myGroup) ? '<span style="color:#94a3b8; font-size:.8rem;">對方場次建立</span>' : ((myRole === 'admin' || canGroupEdit(t)) ? `<button class="btn-sm btn-primary-sm" style="margin-right:6px; padding:6px 10px;" onclick="openEditModal(${t.id})">✏️ 修改</button>` : '') + `<button class="btn-delete" onclick="deleteTransaction(${t.id})">刪除</button>`}</td>
                 `;
                 transactionList.appendChild(tr);
             });
@@ -2702,6 +2949,8 @@
                 if (noteEl) noteEl.textContent = `含教會代墊款核對 ${fmtMoney(advDoc)}`;
                 totalIncEl.textContent = `NT$ ${cashierIncome.toLocaleString()}`;
                 document.getElementById('cashier-transferred').textContent = `NT$ ${cashierTransferred.toLocaleString()}`;
+                const trfNote = document.getElementById('cashier-transfer-note');
+                if (trfNote) trfNote.textContent = cashierReturned ? `已扣除場次退回 ${fmtMoney(cashierReturned)}` : '';
                 document.getElementById('cashier-pool-balance').textContent = `NT$ ${(cashierIncome - cashierTransferred - cashierDirect).toLocaleString()}`;
                 document.getElementById('cashier-direct').textContent = `NT$ ${cashierDirect.toLocaleString()}`;
 
