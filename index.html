@@ -395,7 +395,7 @@
                         <p id="cashier-direct">NT$ 0</p>
                     </div>
                     <div class="card balance" style="background: linear-gradient(135deg, #0284c7, #0369a1);">
-                        <h3>出納專戶剩餘金</h3>
+                        <h3>主場費用（剩餘）</h3>
                         <p id="cashier-pool-balance">NT$ 0</p>
                     </div>
                 </div>
@@ -1766,7 +1766,7 @@
                 const totalCell = sec.count ? `<td>${st.n.toLocaleString()} 人</td>` : sec.amount ? `<td>${fmtMoney(st.amt)}</td>` : '';
                 let note = missing.length ? `尚未${sec.amount ? '收款' : '繳交'}：${esc(missing.join('、'))}` : `✅ ${st.total} 間教會皆已${sec.amount ? '收款' : '繳交'}`;
                 if (sec.amount) {
-                    note += `<br>已收款金額 ${fmtMoney(st.amt)} 已併入出納專戶剩餘金。` + (st.amtAll !== st.amt ? `另有 ${fmtMoney(st.amtAll - st.amt)} 已填金額但尚未勾「已收款」，未計入。` : '');
+                    note += `<br>已收款金額 ${fmtMoney(st.amt)} 已併入主場費用（剩餘）。` + (st.amtAll !== st.amt ? `另有 ${fmtMoney(st.amtAll - st.amt)} 已填金額但尚未勾「已收款」，未計入。` : '');
                 }
                 html += `<tr style="font-weight:bold; background:#f1f5f9;"><td>合計</td><td>${st.sub}/${st.total}</td><td>${st.ver}/${st.total}</td>${totalCell}
                     <td style="font-weight:normal; font-size:.85rem; color:${missing.length ? '#d97706' : '#059669'};">${note}</td></tr>`;
@@ -1967,12 +1967,12 @@
                     <div class="card balance"><h3>總預算（固定）</h3><p>${fmtMoney(900000)}</p><small>各場次已分配 ${fmtMoney(sumB)}｜未分配 ${fmtMoney(900000 - sumB)}</small></div>
                     <div class="card income"><h3>出納累計收入</h3><p>${fmtMoney(inc)}</p></div>
                     <div class="card expense" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);"><h3>出納直接匯款（累計）</h3><p>${fmtMoney(directAll)}</p></div>
-                    <div class="card balance" style="background:linear-gradient(135deg,#0284c7,#0369a1);"><h3>出納專戶剩餘</h3><p>${fmtMoney(pool)}</p></div>
+                    <div class="card balance" style="background:linear-gradient(135deg,#0284c7,#0369a1);"><h3>主場費用（剩餘）</h3><p>${fmtMoney(pool)}</p></div>
                 </div>
                 <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 14px; margin-bottom:12px; font-size:.92rem; line-height:1.8;">
-                    <b>對帳：</b>出納收入 ${fmtMoney(inc)} ＝ 劃撥至場次（已扣除退回）${fmtMoney(trfAll)} ＋ 直接匯款 ${fmtMoney(directAll)} ＋ 專戶剩餘 ${fmtMoney(pool)}
+                    <b>對帳：</b>出納收入 ${fmtMoney(inc)} ＝ 劃撥至場次（已扣除退回）${fmtMoney(trfAll)} ＋ 直接匯款 ${fmtMoney(directAll)} ＋ 主場費用剩餘 ${fmtMoney(pool)}
                     <span style="color:#059669; font-weight:bold;">✓</span><br>
-                    <b>預估：</b>專戶剩餘 ${fmtMoney(pool)} − 預算尚待出納撥付/代付 ${fmtMoney(sumNeed)} ＝
+                    <b>預估：</b>主場費用剩餘 ${fmtMoney(pool)} − 預算尚待出納撥付/代付 ${fmtMoney(sumNeed)} ＝
                     <b style="color:${finalBal < 0 ? '#dc2626' : '#059669'};">${fmtMoney(finalBal)}</b>
                     ${finalBal < 0 ? '（⚠️ 若各場次預算全數執行，出納資金將有缺口）' : '（各場次預算全數執行後的出納結餘）'}
                 </div>
@@ -2616,7 +2616,7 @@
 
             if (myRole === 'admin') {
                 const pool = cashierPoolBalance();
-                if (pool < 0) warnings.push(`⚠️ 柔性警示：出納專戶剩餘金已為負數 (NT$ ${pool.toLocaleString()})，請確認劃撥與出納代付紀錄！`);
+                if (pool < 0) warnings.push(`⚠️ 柔性警示：主場費用（剩餘）已為負數 (NT$ ${pool.toLocaleString()})，請確認劃撥與出納代付紀錄！`);
             }
 
             if (warnings.length > 0) {
@@ -2646,36 +2646,78 @@
 
         function copyLineReport() {
             recalculateGroupBudgetsFromItems();
-            let totalInc = 0, totalExp = 0;
-            let g1Exp = 0, g2Exp = 0, g3Exp = 0, g4Exp = 0;
+            const N = n => 'NT$ ' + Math.round(n).toLocaleString();
+            const GK = ['1', '2', '3', '4'];
+            const GN = { '1': '第一場次（青年）', '2': '第二場次（松年）', '3': '第三場次（兒童）', '4': '第四場次（主場）' };
+            const SIGN = { '1': 'signYouth', '2': 'signSenior', '3': 'signChild', '4': 'signAdult' };   // 各場次對應的簽到表
+            const gBud = { '1': budgets.group1, '2': budgets.group2, '3': budgets.group3, '4': budgets.group4 };
+            const gExp = { '1': 0, '2': 0, '3': 0, '4': 0 };
+            let incomeTx = 0, totalExp = 0, trfNet = 0, returned = 0, directPaid = 0;
             transactions.forEach(t => {
-                if (t.flowType === 'income') totalInc += t.amount;
-                else if (t.flowType !== 'transfer' && t.flowType !== 'shift') {
+                if (t.flowType === 'income') incomeTx += t.amount;
+                else if (t.flowType === 'transfer') { trfNet += t.isReturn ? -t.amount : t.amount; if (t.isReturn) returned += t.amount; }
+                else if (t.flowType === 'expense' || t.flowType === 'advance') {
                     totalExp += t.amount;
-                    if (t.group === '1') g1Exp += t.amount;
-                    if (t.group === '2') g2Exp += t.amount;
-                    if (t.group === '3') g3Exp += t.amount;
-                    if (t.group === '4') g4Exp += t.amount;
+                    if (t.group in gExp) gExp[t.group] += t.amount;
+                    if (t.paidBy === 'cashier') directPaid += t.amount;
                 }
             });
-            totalInc += advanceDocTotal();
-            const directPaid = transactions.filter(isCashierPay).reduce((s, t) => s + t.amount, 0);
-            const vName = versionSelect.options[versionSelect.selectedIndex].text;
-            const text = `📊【115年聯合聖誕節經費動向回報 - ${vName}】\n` +
-                `• 總預算: NT$ 900,000 (固定)\n` +
-                `• 總代墊/收入: NT$ ${totalInc.toLocaleString()}\n` +
-                `• 已總支出: NT$ ${totalExp.toLocaleString()}\n` +
-                `• 目前結餘: NT$ ${(totalInc - totalExp).toLocaleString()}\n` +
-                `• 出納直接匯款: NT$ ${directPaid.toLocaleString()}\n` +
-                `• 出納專戶剩餘: NT$ ${cashierPoolBalance().toLocaleString()}\n\n` +
-                `🔹 各場次執行情形:\n` +
-                `1. 青年場: NT$ ${g1Exp.toLocaleString()} / 預算 ${budgets.group1.toLocaleString()} (剩 NT$ ${(budgets.group1 - g1Exp).toLocaleString()})\n` +
-                `2. 松年場: NT$ ${g2Exp.toLocaleString()} / 預算 ${budgets.group2.toLocaleString()} (剩 NT$ ${(budgets.group2 - g2Exp).toLocaleString()})\n` +
-                `3. 兒童場: NT$ ${g3Exp.toLocaleString()} / 預算 ${budgets.group3.toLocaleString()} (剩 NT$ ${(budgets.group3 - g3Exp).toLocaleString()})\n` +
-                `4. 主場: NT$ ${g4Exp.toLocaleString()} / 預算 ${budgets.group4.toLocaleString()} (剩 NT$ ${(budgets.group4 - g4Exp).toLocaleString()})`;
-            
+            const advDoc = advanceDocTotal();
+            const totalInc = incomeTx + advDoc;
+            const sumBud = GK.reduce((x, k) => x + (gBud[k] || 0), 0);
+
+            // 各場次參與人數（取自「簽收核銷」頁籤的簽到表人數）
+            const part = {};
+            GK.forEach(k => {
+                const sec = DOC_SECTIONS.find(x => x.key === SIGN[k]);
+                part[k] = sec ? docStats(sec) : { n: 0, sub: 0, total: 0 };
+            });
+            const sumPart = GK.reduce((x, k) => x + part[k].n, 0);
+
+            const vName = versionSelect.options[versionSelect.selectedIndex].text.replace(/^[^\w\u4e00-\u9fa5]+/, '');
+            const d = new Date();
+            const dateStr = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+            const L = [];
+            L.push('🎄🎁 115年聯合聖誕節 經費動向回報 🎁🎄');
+            L.push(`📅 ${dateStr}｜${vName}`);
+            L.push('');
+            L.push('💰━━ 計畫費用收支 ━━💰');
+            L.push(`🎯 總預算：${N(900000)}（固定）`);
+            L.push(`📋 各場次預算合計：${N(sumBud)}${sumBud === 900000 ? ' ✅' : `（尚未分配 ${N(900000 - sumBud)}）`}`);
+            L.push(`📥 總收入（含教會代墊款）：${N(totalInc)}`);
+            L.push(`📤 總支出（核銷＋預支）：${N(totalExp)}`);
+            L.push(`💵 目前結餘：${N(totalInc - totalExp)}${totalInc - totalExp < 0 ? ' ⚠️' : ''}`);
+            L.push(`📈 預算執行率：${sumBud > 0 ? Math.round(totalExp / sumBud * 100) : 0}%`);
+            L.push('');
+            L.push('🏦━━ 出納資金 ━━🏦');
+            L.push(`➡️ 已撥款至各場次（已扣除退回）：${N(trfNet)}`);
+            if (returned > 0) L.push(`↩️ 其中場次退回出納：${N(returned)}`);
+            L.push(`💸 出納直接代付：${N(directPaid)}`);
+            L.push(`🏠 主場費用剩餘：${N(cashierPoolBalance())}${cashierPoolBalance() < 0 ? ' ⚠️' : ''}`);
+            L.push('');
+            L.push('🔹━━ 各場次執行情形 ━━🔹');
+            GK.forEach((k, i) => {
+                const b = gBud[k] || 0, e = gExp[k], rem = b - e;
+                const rate = b > 0 ? Math.round(e / b * 100) + '%' : '-';
+                L.push(`${['1️⃣', '2️⃣', '3️⃣', '4️⃣'][i]} ${GN[k]}`);
+                L.push(`   👥 參與人數：${part[k].n > 0 ? part[k].n.toLocaleString() + ' 人' : '尚未登錄'}`);
+                L.push(`   🎯 預算：${N(b)}`);
+                L.push(`   🧾 實支：${N(e)}（執行率 ${rate}）`);
+                L.push(`   ${rem < 0 ? '🚨' : '✅'} 剩餘：${N(rem)}${rem < 0 ? ' ⚠️已超支' : ''}`);
+            });
+            L.push('');
+            L.push('📌━━ 四場次合計 ━━📌');
+            L.push(`   👥 參與人數：${sumPart.toLocaleString()} 人`);
+            L.push(`   🎯 預算：${N(sumBud)}`);
+            L.push(`   🧾 實支：${N(totalExp)}`);
+            L.push(`   ✅ 剩餘：${N(sumBud - totalExp)}`);
+            L.push('');
+            L.push('📣 提醒：各場次的活動核銷資料及相關照片 📸，請務必傳給 @達昆 🙏');
+            L.push('感謝大家的辛勞，願主賜福！🕊️');
+            const text = L.join('\n');
+
             navigator.clipboard.writeText(text).then(() => {
-                alert('已成功複製 LINE 經費報告摘要！');
+                alert('已成功複製 LINE 經費報告！\n\n可直接到 LINE 貼上。');
             });
         }
 
