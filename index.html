@@ -474,7 +474,7 @@
                 </div>
                 <div class="table-responsive">
                     <table style="min-width: 560px;">
-                        <thead><tr><th>經費項目</th><th>預算</th><th>已執行</th><th>剩餘</th><th>備註說明</th></tr></thead>
+                        <thead><tr><th>經費項目</th><th>預算</th><th>已執行</th><th>↩️ 已退回出納</th><th>剩餘</th><th>備註說明</th></tr></thead>
                         <tbody id="my-budget-body"></tbody>
                     </table>
                 </div>
@@ -523,6 +523,7 @@
                             <option value="actual">顯示：實際執行</option>
                             <option value="budget">顯示：預算</option>
                             <option value="remain">顯示：剩餘</option>
+                            <option value="return">顯示：已退回出納</option>
                             <option value="rate">顯示：執行率</option>
                         </select>
                         <select id="analysis-sort" onchange="renderAnalysis()" style="max-width: 170px; padding: 8px;">
@@ -707,7 +708,7 @@
                                 <option value="income">1. 統一收入 (23間教會代墊款/奉獻)</option>
                                 <option value="transfer">2. 場次劃撥 (出納專戶撥款至場次)</option>
                                 <option value="shift">2-1. 場次間費用異動 (A場次轉出 → B場次轉入)</option>
-                                <option value="return">2-2. 場次退回出納 (預撥款未用完，場次退回出納專戶)</option>
+                                <option value="return">2-2. 場次退回出納 (預撥款未用完，須指定項目)</option>
                                 <option value="expense" selected>3. 支出架構 (核銷)</option>
                                 <option value="advance">4. 支出架構 (預支)</option>
                             </select>
@@ -850,7 +851,7 @@
 
                 <div class="table-responsive" style="margin-bottom: 30px;">
                     <table>
-                        <thead><tr><th>經費項目名稱</th><th>預算金額</th><th>實際執行</th><th>剩餘費用</th><th>備註說明</th><th>操作</th></tr></thead>
+                        <thead><tr><th>經費項目名稱</th><th>預算金額</th><th>實際執行</th><th>↩️ 已退回出納</th><th>剩餘費用</th><th>備註說明</th><th>操作</th></tr></thead>
                         <tbody id="budget-comparison-list"></tbody>
                     </table>
                 </div>
@@ -1096,16 +1097,22 @@
             const items = (groupBudgetItems && groupBudgetItems[groupKey]) || [];
             const ids = {}, firstByCat = {};
             items.forEach(i => { ids[i.id] = true; if (!(i.category in firstByCat)) firstByCat[i.category] = i.id; });
-            const byId = {}, outside = {};
-            let total = 0;
+            const byId = {}, outside = {}, retById = {};
+            let total = 0, retTotal = 0, retUnassigned = 0;
             transactions.forEach(t => {
+                if (t.group === groupKey && t.flowType === 'transfer' && t.isReturn) {      // 場次退回出納：歸入對應的經費項目
+                    retTotal += t.amount;
+                    const rk = (t.itemId && ids[t.itemId]) ? t.itemId : firstByCat[t.category];
+                    if (rk) retById[rk] = (retById[rk] || 0) + t.amount; else retUnassigned += t.amount;
+                    return;
+                }
                 if (t.group !== groupKey || t.flowType === 'income' || t.flowType === 'transfer' || t.flowType === 'shift') return;
                 total += t.amount;
                 const key = (t.itemId && ids[t.itemId]) ? t.itemId : firstByCat[t.category];
                 if (key) byId[key] = (byId[key] || 0) + t.amount;
                 else outside[t.category] = (outside[t.category] || 0) + t.amount;
             });
-            return { byId, outside, total };
+            return { byId, outside, total, retById, retTotal, retUnassigned };
         }
 
         // ---------- 🔢 重置與整批重新編號邏輯 ----------
@@ -1446,13 +1453,14 @@
             const tb = document.getElementById('cashflow-body');
             if (!tb || myRole !== 'admin') return;
             const keys = ['1', '2', '3', '4', 'none'];
-            const rows = {}; keys.forEach(k => rows[k] = { inc: 0, exp: 0, adv: 0, sIn: 0, sOut: 0 });
+            const rows = {}; keys.forEach(k => rows[k] = { inc: 0, exp: 0, adv: 0, sIn: 0, sOut: 0, ret: 0 });
             transactions.forEach(t => {
                 if (t.flowType === 'shift') {
                     if (rows[t.group]) rows[t.group].sOut += t.amount;
                     if (rows[t.toGroup]) rows[t.toGroup].sIn += t.amount;
                     return;
                 }
+                if (t.flowType === 'transfer' && t.isReturn && rows[t.group]) { rows[t.group].ret += t.amount; return; }
                 const r = rows[t.group]; if (!r) return;
                 if (t.flowType === 'income') r.inc += t.amount;
                 else if (t.flowType === 'advance') r.adv += t.amount;
@@ -1460,11 +1468,11 @@
             });
             rows['none'].inc += advanceDocTotal();
             const bud = { '1': budgets.group1, '2': budgets.group2, '3': budgets.group3, '4': budgets.group4, 'none': null };
-            const T = { inc: 0, exp: 0, adv: 0, sIn: 0, sOut: 0, bud: 0, remain: 0 };
+            const T = { inc: 0, exp: 0, adv: 0, sIn: 0, sOut: 0, ret: 0, bud: 0, remain: 0 };
             const line = (name, r, b, bold) => {
                 const net = r.inc - r.exp - r.adv + r.sIn - r.sOut;
                 const shiftNet = r.sIn - r.sOut;
-                const remain = b === null ? null : b - r.exp - r.adv;
+                const remain = b === null ? null : b - r.exp - r.adv - r.ret;
                 return `<tr style="${bold ? 'font-weight:bold; background:#f1f5f9;' : ''}">
                     <td>${name}</td><td style="color:#059669;">${fmtMoney(r.inc)}</td><td>${fmtMoney(r.exp)}</td><td style="color:#d97706;">${fmtMoney(r.adv)}</td>
                     <td style="color:#0d9488;">${shiftNet === 0 ? '-' : (shiftNet > 0 ? '+' : '-') + fmtMoney(Math.abs(shiftNet))}</td>
@@ -1474,7 +1482,7 @@
             let html = '';
             keys.forEach(k => {
                 const r = rows[k];
-                T.inc += r.inc; T.exp += r.exp; T.adv += r.adv; T.sIn += r.sIn; T.sOut += r.sOut;
+                T.inc += r.inc; T.exp += r.exp; T.adv += r.adv; T.sIn += r.sIn; T.sOut += r.sOut; T.ret += r.ret;
                 if (bud[k] !== null) { T.bud += bud[k]; }
                 html += line(esc(GROUP_NAME_MAP[k]), r, bud[k], false);
             });
@@ -1491,7 +1499,7 @@
             const m = buildActualMap(g);
             const used = m.total;
             const total = items.reduce((s, i) => s + (parseFloat(i.budget) || 0), 0);
-            const remain = total - used, rate = total > 0 ? used / total : (used > 0 ? 9.99 : 0);
+            const remain = total - used - m.retTotal, rate = total > 0 ? used / total : (used > 0 ? 9.99 : 0);
             const col = rate > 1 ? '#dc2626' : rate > 0.75 ? '#d97706' : '#059669';
             document.getElementById('my-budget-title').textContent = `📋 ${GROUP_NAME_MAP[g] || '本組'} 預算總覽`;
             document.getElementById('my-budget-total').textContent = fmtMoney(total);
@@ -1504,14 +1512,15 @@
             r.textContent = total > 0 ? Math.round(rate * 100) + '%' : '-'; r.style.color = col;
 
             let rows = items.map(i => {
-                const b = parseFloat(i.budget) || 0, a = m.byId[i.id] || 0, rm = b - a;
-                return `<tr><td style="font-weight:600;">${esc(i.category)}</td><td>${fmtMoney(b)}</td><td>${fmtMoney(a)}</td>
+                const b = parseFloat(i.budget) || 0, a = m.byId[i.id] || 0, rt = m.retById[i.id] || 0, rm = b - a - rt;
+                return `<tr><td style="font-weight:600;">${esc(i.category)}</td><td>${fmtMoney(b)}</td><td>${fmtMoney(a)}</td><td style="color:#be185d;">${rt ? fmtMoney(rt) : '-'}</td>
                     <td style="font-weight:bold; color:${rm < 0 ? '#dc2626' : '#059669'};">${fmtMoney(rm)}${rm < 0 ? ' ⚠️' : ''}</td><td>${esc(i.note || '-')}</td></tr>`;
             }).join('');
             Object.keys(m.outside).sort(strokeCmp).forEach(c => {
-                rows += `<tr><td>${esc(c)}</td><td>-</td><td>${fmtMoney(m.outside[c])}</td><td style="color:#dc2626; font-weight:bold;">預算外</td><td>-</td></tr>`;
+                rows += `<tr><td>${esc(c)}</td><td>-</td><td>${fmtMoney(m.outside[c])}</td><td>-</td><td style="color:#dc2626; font-weight:bold;">預算外</td><td>-</td></tr>`;
             });
-            body.innerHTML = rows || '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">管理員尚未編列本組預算項目</td></tr>';
+            if (m.retUnassigned > 0) rows += `<tr><td>（尚未指定項目的退回）</td><td>-</td><td>-</td><td style="color:#be185d;">${fmtMoney(m.retUnassigned)}</td><td style="color:#d97706; font-weight:bold;">待歸類</td><td>請洽管理員指定項目</td></tr>`;
+            body.innerHTML = rows || '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">管理員尚未編列本組預算項目</td></tr>';
         }
 
         // ---------- 四場次總表分析 ----------
@@ -1521,26 +1530,30 @@
         function buildAnalysis() {
             const cats = [], seen = {}, M = {};
             const ensure = c => {
-                if (!seen[c]) { seen[c] = 1; cats.push(c); M[c] = {}; A_GROUPS.forEach(g => M[c][g] = { b: null, a: 0 }); }
+                if (!seen[c]) { seen[c] = 1; cats.push(c); M[c] = {}; A_GROUPS.forEach(g => M[c][g] = { b: null, a: 0, r: 0 }); }
             };
             A_GROUPS.forEach(g => (groupBudgetItems[g] || []).forEach(i => {
                 ensure(i.category);
                 M[i.category][g].b = (M[i.category][g].b || 0) + (parseFloat(i.budget) || 0);
             }));
             transactions.forEach(t => {
+                if (t.flowType === 'transfer' && t.isReturn) {       // 退回：歸入該場次對應的經費項目
+                    if (A_GROUPS.indexOf(t.group) >= 0 && M[t.category] && M[t.category][t.group].b !== null) M[t.category][t.group].r += t.amount;
+                    return;
+                }
                 if (t.flowType === 'income' || t.flowType === 'transfer' || t.flowType === 'shift' || A_GROUPS.indexOf(t.group) < 0) return;
                 ensure(t.category);
                 M[t.category][t.group].a += t.amount;
             });
-            const rowTotal = c => A_GROUPS.reduce((o, g) => ({ b: o.b + (M[c][g].b || 0), a: o.a + M[c][g].a }), { b: 0, a: 0 });
+            const rowTotal = c => A_GROUPS.reduce((o, g) => ({ b: o.b + (M[c][g].b || 0), a: o.a + M[c][g].a, r: o.r + M[c][g].r }), { b: 0, a: 0, r: 0 });
             const sort = document.getElementById('analysis-sort').value;
             if (sort === 'default') cats.sort(strokeCmp);
             else {
-                const key = c => { const t = rowTotal(c); return sort === 'budget-desc' ? -t.b : sort === 'actual-desc' ? -t.a : (t.b - t.a); };
+                const key = c => { const t = rowTotal(c); return sort === 'budget-desc' ? -t.b : sort === 'actual-desc' ? -t.a : (t.b - t.a - t.r); };
                 cats.sort((x, y) => key(x) - key(y));
             }
-            const G = {}; A_GROUPS.forEach(g => G[g] = { b: 0, a: 0 });
-            cats.forEach(c => A_GROUPS.forEach(g => { G[g].b += M[c][g].b || 0; G[g].a += M[c][g].a; }));
+            const G = {}; A_GROUPS.forEach(g => G[g] = { b: 0, a: 0, r: 0 });
+            cats.forEach(c => A_GROUPS.forEach(g => { G[g].b += M[c][g].b || 0; G[g].a += M[c][g].a; G[g].r += M[c][g].r; }));
             return { cats, M, G, rowTotal };
         }
 
@@ -1552,10 +1565,10 @@
             const { cats, M, G, rowTotal } = buildAnalysis();
             const metric = document.getElementById('analysis-metric').value;
 
-            let TB = 0, TA = 0, html = '';
+            let TB = 0, TA = 0, TRT = 0, html = '';
             A_GROUPS.forEach(g => {
-                const b = G[g].b, a = G[g].a, rem = b - a, rate = b > 0 ? a / b : (a > 0 ? 9.99 : 0);
-                TB += b; TA += a;
+                const b = G[g].b, a = G[g].a, rt0 = G[g].r, rem = b - a - rt0, rate = b > 0 ? a / b : (a > 0 ? 9.99 : 0);
+                TB += b; TA += a; TRT += rt0;
                 const status = rem < 0 ? '<span style="color:#dc2626;font-weight:bold;">⚠️ 超支</span>' : a === 0 ? '<span style="color:#64748b;">尚未動用</span>' : '<span style="color:#059669;">正常</span>';
                 html += `<tr><td style="font-weight:600;">${esc(GROUP_NAME_MAP[g])}</td><td>${fmtMoney(b)}</td><td>${fmtMoney(a)}</td>
                     <td style="color:${rem < 0 ? '#dc2626' : '#1e293b'}; font-weight:bold;">${fmtMoney(rem)}</td>
@@ -1564,28 +1577,29 @@
             });
             const TR = TB > 0 ? TA / TB : 0;
             html += `<tr style="font-weight:bold; background:#f1f5f9;"><td>四場次合計</td><td>${fmtMoney(TB)}</td><td>${fmtMoney(TA)}</td>
-                <td style="color:${TB - TA < 0 ? '#dc2626' : '#1e293b'};">${fmtMoney(TB - TA)}</td><td style="color:${rateColor(TR)};">${Math.round(TR * 100)}%</td>
+                <td style="color:${TB - TA - TRT < 0 ? '#dc2626' : '#1e293b'};">${fmtMoney(TB - TA - TRT)}</td><td style="color:${rateColor(TR)};">${Math.round(TR * 100)}%</td>
                 <td style="font-weight:normal; font-size:.85rem;">固定總預算 ${fmtMoney(900000)}，尚未分配 ${fmtMoney(900000 - TB)}</td></tr>`;
             sumBody.innerHTML = html;
 
-            const metricName = { actual: '實際執行', budget: '預算', remain: '剩餘', rate: '執行率' }[metric];
+            const metricName = { actual: '實際執行', budget: '預算', remain: '剩餘（已扣退回）', 'return': '已退回出納', rate: '執行率' }[metric];
             document.getElementById('analysis-matrix-head').innerHTML =
                 `<tr><th>經費項目（${metricName}）</th>${A_GROUPS.map(g => `<th>${A_SHORT[g]}</th>`).join('')}<th>合計</th></tr>`;
-            const cell = (b, a) => {
+            const cell = (b, a, rt) => {
                 const hasB = b !== null && b !== undefined;
                 if (!hasB && a === 0) return '<td style="color:#cbd5e1;">-</td>';
                 if (metric === 'budget') return `<td>${hasB ? fmtMoney(b) : '-'}</td>`;
                 if (metric === 'actual') return `<td ${!hasB ? 'style="color:#dc2626;" title="預算外項目"' : ''}>${fmtMoney(a)}</td>`;
-                if (metric === 'remain') { const r = (b || 0) - a; return `<td style="color:${r < 0 ? '#dc2626' : '#1e293b'};">${fmtMoney(r)}</td>`; }
+                if (metric === 'return') return `<td style="color:#be185d;">${rt ? fmtMoney(rt) : '-'}</td>`;
+                if (metric === 'remain') { const rm = (b || 0) - a - (rt || 0); return `<td style="color:${rm < 0 ? '#dc2626' : '#1e293b'};">${fmtMoney(rm)}</td>`; }
                 if (!b) return a > 0 ? `<td style="color:#dc2626;">預算外</td>` : '<td style="color:#cbd5e1;">-</td>';
                 const r = a / b; return `<td style="color:${rateColor(r)}; font-weight:600;">${Math.round(r * 100)}%</td>`;
             };
             let mh = '';
             cats.forEach(c => {
                 const t = rowTotal(c);
-                mh += `<tr><td style="font-weight:600;">${esc(c)}</td>${A_GROUPS.map(g => cell(M[c][g].b, M[c][g].a)).join('')}${cell(t.b, t.a).replace('<td', '<td style="font-weight:bold;background:#f8fafc;"').replace('style="font-weight:bold;background:#f8fafc;" style=', 'style=')}</tr>`;
+                mh += `<tr><td style="font-weight:600;">${esc(c)}</td>${A_GROUPS.map(g => cell(M[c][g].b, M[c][g].a, M[c][g].r)).join('')}${cell(t.b, t.a, t.r).replace('<td', '<td style="font-weight:bold;background:#f8fafc;"').replace('style="font-weight:bold;background:#f8fafc;" style=', 'style=')}</tr>`;
             });
-            mh += `<tr style="font-weight:bold; background:#f1f5f9;"><td>合計</td>${A_GROUPS.map(g => cell(G[g].b, G[g].a)).join('')}${cell(TB, TA)}</tr>`;
+            mh += `<tr style="font-weight:bold; background:#f1f5f9;"><td>合計</td>${A_GROUPS.map(g => cell(G[g].b, G[g].a, G[g].r)).join('')}${cell(TB, TA, TRT)}</tr>`;
             document.getElementById('analysis-matrix').innerHTML = mh || '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">尚無資料</td></tr>';
         }
 
@@ -1593,16 +1607,16 @@
             const { cats, M, G, rowTotal } = buildAnalysis();
             const q = v => '"' + String(v).replace(/"/g, '""') + '"';
             const head = ['經費項目'];
-            A_GROUPS.forEach(g => head.push(A_SHORT[g] + '預算', A_SHORT[g] + '實際', A_SHORT[g] + '剩餘'));
-            head.push('合計預算', '合計實際', '合計剩餘', '執行率');
+            A_GROUPS.forEach(g => head.push(A_SHORT[g] + '預算', A_SHORT[g] + '實際', A_SHORT[g] + '退回出納', A_SHORT[g] + '剩餘'));
+            head.push('合計預算', '合計實際', '合計退回出納', '合計剩餘', '執行率');
             const lines = [head.map(q).join(',')];
             const mk = (name, get) => {
-                const row = [name]; let tb = 0, ta = 0;
-                A_GROUPS.forEach(g => { const { b, a } = get(g); row.push(b, a, b - a); tb += b; ta += a; });
-                row.push(tb, ta, tb - ta, tb > 0 ? Math.round(ta / tb * 100) + '%' : '');
+                const row = [name]; let tb = 0, ta = 0, tr = 0;
+                A_GROUPS.forEach(g => { const { b, a, r } = get(g); row.push(b, a, r, b - a - r); tb += b; ta += a; tr += r; });
+                row.push(tb, ta, tr, tb - ta - tr, tb > 0 ? Math.round(ta / tb * 100) + '%' : '');
                 return row.map(q).join(',');
             };
-            cats.forEach(c => lines.push(mk(c, g => ({ b: M[c][g].b || 0, a: M[c][g].a }))));
+            cats.forEach(c => lines.push(mk(c, g => ({ b: M[c][g].b || 0, a: M[c][g].a, r: M[c][g].r }))));
             lines.push(mk('合計', g => G[g]));
             const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
             const a = document.createElement('a');
@@ -1886,7 +1900,7 @@
             sel.innerHTML = items.map(i => {
                 const b = parseFloat(i.budget) || 0;
                 const note = i.note && i.note !== '-' ? '｜' + i.note.slice(0, 14) : '';
-                return `<option value="${esc(i.id)}">${esc(i.category + note)}（預算 ${b.toLocaleString()}｜剩 ${(b - (m.byId[i.id] || 0)).toLocaleString()}）</option>`;
+                return `<option value="${esc(i.id)}">${esc(i.category + note)}（預算 ${b.toLocaleString()}｜剩 ${(b - (m.byId[i.id] || 0) - (m.retById[i.id] || 0)).toLocaleString()}）</option>`;
             }).join('');
             if (cur && items.some(i => i.id === cur)) sel.value = cur;
         }
@@ -1937,30 +1951,30 @@
 
             // ---- 90 萬資金脈絡 ----
             const keys = ['1', '2', '3', '4'], R = {};
-            keys.forEach(k => R[k] = { trf: 0, sIn: 0, sOut: 0, direct: 0, exp: 0 });
+            keys.forEach(k => R[k] = { trf: 0, ret: 0, sIn: 0, sOut: 0, direct: 0, exp: 0 });
             let inc = advanceDocTotal(), trfAll = 0, directAll = 0;
             transactions.forEach(t => {
                 if (t.flowType === 'income') { inc += t.amount; return; }
-                if (t.flowType === 'transfer') { const v = t.isReturn ? -t.amount : t.amount; trfAll += v; if (R[t.group]) R[t.group].trf += v; return; }
+                if (t.flowType === 'transfer') { const v = t.isReturn ? -t.amount : t.amount; trfAll += v; if (R[t.group]) { R[t.group].trf += v; if (t.isReturn) R[t.group].ret += t.amount; } return; }
                 if (t.flowType === 'shift') { if (R[t.group]) R[t.group].sOut += t.amount; if (R[t.toGroup]) R[t.toGroup].sIn += t.amount; return; }
                 if (R[t.group]) R[t.group].exp += t.amount;
                 if (t.paidBy === 'cashier') { directAll += t.amount; if (R[t.group]) R[t.group].direct += t.amount; }
             });
             const pool = inc - trfAll - directAll;
             const bud = { '1': budgets.group1, '2': budgets.group2, '3': budgets.group3, '4': budgets.group4 };
-            let sumB = 0, sumNeed = 0, sumExp = 0, sumTrf = 0, sumShift = 0, sumDir = 0, rows = '';
+            let sumB = 0, sumNeed = 0, sumExp = 0, sumTrf = 0, sumRet = 0, sumShift = 0, sumDir = 0, rows = '';
             keys.forEach(k => {
                 const r = R[k], b = bud[k] || 0, shiftNet = r.sIn - r.sOut;
-                const need = b - r.trf - shiftNet - r.direct;     // 預算中尚未由出納撥款/代付覆蓋的部分
-                sumB += b; sumNeed += need; sumExp += r.exp; sumTrf += r.trf; sumShift += shiftNet; sumDir += r.direct;
+                const need = b - r.ret - r.trf - shiftNet - r.direct;     // 預算中尚未由出納撥款/代付覆蓋的部分
+                sumB += b; sumNeed += need; sumExp += r.exp; sumTrf += r.trf; sumRet += r.ret; sumShift += shiftNet; sumDir += r.direct;
                 rows += `<tr><td style="font-weight:600;">${esc(GROUP_NAME_MAP[k])}</td><td>${fmtMoney(b)}</td><td>${fmtMoney(r.trf)}</td>
                     <td style="color:#0d9488;">${shiftNet === 0 ? '-' : (shiftNet > 0 ? '+' : '-') + fmtMoney(Math.abs(shiftNet))}</td>
                     <td style="color:#7c3aed; font-weight:bold;">${fmtMoney(r.direct)}</td>
                     <td style="color:${need < 0 ? '#dc2626' : '#1e293b'}; font-weight:bold;">${fmtMoney(need)}${need < 0 ? ' (超額)' : ''}</td>
-                    <td>${fmtMoney(r.exp)}</td><td style="color:${b - r.exp < 0 ? '#dc2626' : '#059669'};">${fmtMoney(b - r.exp)}</td></tr>`;
+                    <td>${fmtMoney(r.exp)}</td><td style="color:${b - r.exp - r.ret < 0 ? '#dc2626' : '#059669'};">${fmtMoney(b - r.exp - r.ret)}</td></tr>`;
             });
             rows += `<tr style="font-weight:bold; background:#f1f5f9;"><td>合計</td><td>${fmtMoney(sumB)}</td><td>${fmtMoney(sumTrf)}</td>
-                <td>${sumShift === 0 ? '-' : fmtMoney(sumShift)}</td><td>${fmtMoney(sumDir)}</td><td>${fmtMoney(sumNeed)}</td><td>${fmtMoney(sumExp)}</td><td>${fmtMoney(sumB - sumExp)}</td></tr>`;
+                <td>${sumShift === 0 ? '-' : fmtMoney(sumShift)}</td><td>${fmtMoney(sumDir)}</td><td>${fmtMoney(sumNeed)}</td><td>${fmtMoney(sumExp)}</td><td>${fmtMoney(sumB - sumExp - sumRet)}</td></tr>`;
             const finalBal = pool - sumNeed;
             flow.innerHTML = `
                 <div class="card-group-row" style="margin-bottom:14px; flex-wrap:wrap;">
@@ -1979,7 +1993,7 @@
                 <div class="table-responsive"><table style="min-width:860px;">
                     <thead><tr><th>場次</th><th>預算</th><th>出納已撥款</th><th>場次間異動(淨)</th><th>出納直接匯款</th><th>預算尚待撥付/代付</th><th>已執行</th><th>預算剩餘</th></tr></thead>
                     <tbody>${rows}</tbody></table></div>
-                <p style="font-size:.8rem; color:#64748b; margin-top:6px;">「預算尚待撥付/代付」＝ 場次預算 − 已撥款 − 異動淨額 − 出納直接匯款，也就是出納還需要提供給該場次的金額。</p>`;
+                <p style="font-size:.8rem; color:#64748b; margin-top:6px;">「預算尚待撥付/代付」＝ 場次預算 − 已退回出納（該項目已結案、不再使用）− 已撥款（已扣退回）− 異動淨額 − 出納直接匯款，也就是出納還需要提供給該場次的金額；「預算剩餘」＝ 預算 − 已執行 − 已退回出納。</p>`;
 
             // ---- 收款人彙總 ----
             const list = transactions.filter(isCashierPay), P = {};
@@ -2042,6 +2056,7 @@
         const FLOW_FULL_NAME = { income: '代墊/收入', transfer: '場次劃撥', 'return': '場次退回出納', shift: '場次間異動', expense: '支出核銷', advance: '預支' };
         function isExec(t) { return t.flowType === 'expense' || t.flowType === 'advance'; }
         function isRet(t) { return t.flowType === 'transfer' && t.isReturn === true; }
+        function needItem(t) { return isExec(t) || isRet(t); }   // 支出、預支、退回都要對應經費項目
 
         // 各組會計：只能改本組「支出/預支/場次退回」，且狀態不是「正確相符」
         function canGroupEdit(t) {
@@ -2055,9 +2070,9 @@
             let pick = keep && items.some(i => i.id === keep) ? keep : '';
             if (!pick) {
                 if (g === t.group && t.itemId && items.some(i => i.id === t.itemId)) pick = t.itemId;
-                else { const same = items.find(i => i.category === t.category); pick = same ? same.id : (items[0] ? items[0].id : ''); }
+                else { const same = items.find(i => i.category === t.category); pick = same ? same.id : (isRet(t) ? '' : (items[0] ? items[0].id : '')); }
             }
-            ED('ed-item').innerHTML = items.map(i => {
+            ED('ed-item').innerHTML = (isRet(t) && !pick ? '<option value="">— 請選擇退回的經費項目 —</option>' : '') + items.map(i => {
                 const note = i.note && i.note !== '-' ? '｜' + i.note.slice(0, 14) : '';
                 return `<option value="${esc(i.id)}">${esc(i.category + note)}（預算 ${(parseFloat(i.budget) || 0).toLocaleString()}）</option>`;
             }).join('');
@@ -2074,7 +2089,7 @@
 
         function edGroupChanged() {
             const t = transactions.find(x => x.id === editingId); if (!t) return;
-            if (isExec(t)) edRefreshItems(t);
+            if (needItem(t)) edRefreshItems(t);
             if (t.flowType === 'shift') edRefreshToGroup(t);
         }
 
@@ -2105,11 +2120,11 @@
             ED('ed-togroup').innerHTML = '';
             if (t.flowType === 'shift') edRefreshToGroup(t);
 
-            ED('ed-item-wrap').style.display = isExec(t) ? 'block' : 'none';
-            ED('ed-cat-wrap').style.display = isExec(t) ? 'none' : 'block';
-            ED('ed-custom').value = isExec(t) ? '' : (t.category || '');
+            ED('ed-item-wrap').style.display = needItem(t) ? 'block' : 'none';
+            ED('ed-cat-wrap').style.display = needItem(t) ? 'none' : 'block';
+            ED('ed-custom').value = needItem(t) ? '' : (t.category || '');
             ED('ed-item').innerHTML = '';
-            if (isExec(t)) edRefreshItems(t);
+            if (needItem(t)) edRefreshItems(t);
 
             ED('ed-paid-wrap').style.display = isExec(t) ? 'block' : 'none';
             ED('ed-paid').value = t.paidBy === 'cashier' ? 'cashier' : 'self';
@@ -2167,11 +2182,15 @@
                 receiptType: ED('ed-receipt').value, note: ED('ed-note').value
             };
             if (isAdmin) { patch.group = g; patch.statusCheck = ED('ed-status').value; }
-            if (isExec(t)) {
+            if (needItem(t)) {
                 const it = (groupBudgetItems[g] || []).find(i => i.id === ED('ed-item').value);
                 if (!it) { alert('請選擇經費項目'); return; }
                 patch.itemId = it.id; patch.category = it.category;
-                if (isAdmin) {
+                if (isRet(t)) {
+                    const avail = itemReturnAvail(g, it.id, t.id);
+                    if (amt > avail) { alert(`「${it.category}」目前最多只能退回 NT$ ${avail.toLocaleString()}（預算 − 已執行 − 其他已退回）。經費項目不可跨項目勻支。`); return; }
+                }
+                if (isAdmin && isExec(t)) {
                     patch.paidBy = ED('ed-paid').value;
                     if (patch.paidBy === 'cashier') {
                         patch.payee = ED('ed-payee').value.trim();
@@ -2319,6 +2338,8 @@
 
         function handleFlowTypeChange() {
             const type = flowTypeSelect.value;
+            const catLabel = document.getElementById('category-label');
+            if (catLabel) catLabel.textContent = type === 'return' ? '退回項目（該項目未使用完的款項，不可跨項目）' : '規定項目 / 類別';
             const payWrap = document.getElementById('pay-method-wrap');
             if (payWrap) payWrap.style.display = (type === 'expense' || type === 'advance') ? 'block' : 'none';
             updatePayHint();
@@ -2332,7 +2353,7 @@
                 customCategoryInput.placeholder = '例如：奎輝教會代墊款 / 奉獻收入';
                 customCategoryInput.required = true;
                 categorySelect.required = false;
-            } else if (type === 'transfer' || type === 'shift' || type === 'return') {
+            } else if (type === 'transfer' || type === 'shift') {
                 categorySelect.style.display = 'none';
                 customCategoryInput.style.display = 'block';
                 customCategoryInput.placeholder = isShift ? '異動說明 (例: 青年場撥補主場音響租金)' : type === 'return' ? '退回說明 (例: 青年場退回未使用之預撥款)' : '劃撥說明 (例: 出納撥付青年場第一期經費)';
@@ -2412,8 +2433,10 @@
                 gExp += t.amount;
             });
 
-            let gRemain = gBudget - gExp;
-            hintEl.textContent = `📊 【${gName}】目前分配預算: NT$ ${gBudget.toLocaleString()} | 已核銷支出: NT$ ${gExp.toLocaleString()} | 💡 目前剩餘經費: NT$ ${gRemain.toLocaleString()}`;
+            let gRet = 0;
+            transactions.forEach(t => { if (t.group === gKey && t.flowType === 'transfer' && t.isReturn) gRet += t.amount; });
+            let gRemain = gBudget - gExp - gRet;
+            hintEl.textContent = `📊 【${gName}】目前分配預算: NT$ ${gBudget.toLocaleString()} | 已核銷支出: NT$ ${gExp.toLocaleString()}${gRet ? ' | 已退回出納: NT$ ' + gRet.toLocaleString() : ''} | 💡 目前剩餘經費: NT$ ${gRemain.toLocaleString()}`;
             hintEl.style.borderLeftColor = gRemain < 0 ? '#ef4444' : '#10b981';
         }
 
@@ -2503,7 +2526,7 @@
         }
 
         function updateCategoryOptions() {
-            if (flowTypeSelect.value === 'income' || flowTypeSelect.value === 'transfer' || flowTypeSelect.value === 'shift' || flowTypeSelect.value === 'return') return;
+            if (flowTypeSelect.value === 'income' || flowTypeSelect.value === 'transfer' || flowTypeSelect.value === 'shift') return;
             const gKey = groupSelect.value in groupBudgetItems ? groupSelect.value : 'none';
             const items = groupBudgetItems[gKey];
             const m = buildActualMap(gKey);
@@ -2513,7 +2536,7 @@
                     const opt = document.createElement('option');
                     opt.value = item.id;   // 以項目 ID 區分同名的預算列
                     const note = item.note && item.note !== '-' ? '｜' + item.note.slice(0, 14) : '';
-                    const remain = (parseFloat(item.budget) || 0) - (m.byId[item.id] || 0);
+                    const remain = (parseFloat(item.budget) || 0) - (m.byId[item.id] || 0) - (m.retById[item.id] || 0);
                     opt.textContent = `${item.category}${note} (預算: NT$ ${(parseFloat(item.budget) || 0).toLocaleString()}｜剩 NT$ ${remain.toLocaleString()})`;
                     categorySelect.appendChild(opt);
                 });
@@ -2534,7 +2557,7 @@
                 if (['1', '2', '3', '4'].indexOf(gKey) < 0) { alert('場次間異動請選擇「轉出場次」（第一～四場次）'); return; }
                 if (!toG || toG === gKey) { alert('請選擇不同於轉出場次的「轉入場次」'); return; }
             }
-            if (flow === 'income' || flow === 'transfer' || flow === 'shift' || flow === 'return') {
+            if (flow === 'income' || flow === 'transfer' || flow === 'shift') {
                 catValue = customCategoryInput.value.trim();
             } else {
                 itemId = categorySelect.value;
@@ -2542,6 +2565,11 @@
                 const it = its.find(i => i.id === itemId);
                 catValue = it ? it.category : '';
                 if (!catValue) { alert('請選擇經費項目'); return; }
+                if (flow === 'return') {
+                    if (!(amt > 0)) { alert('請輸入大於 0 的退回金額'); return; }
+                    const avail = itemReturnAvail(gKey, itemId, null);
+                    if (amt > avail) { alert(`「${catValue}」目前最多只能退回 NT$ ${avail.toLocaleString()}（預算 − 已執行 − 已退回）。\n\n經費項目不可跨項目勻支，請確認退回的項目與金額。`); return; }
+                }
             }
 
             transactions.push({
@@ -2577,6 +2605,17 @@
             handleFlowTypeChange();
             updateFormRemainHint();
         });
+
+        // 某預算列目前可退回的金額 = 預算 − 已執行 − 其他已退回（excludeId：修改時排除自己）
+        function itemReturnAvail(g, itemId, excludeId) {
+            const saved = transactions;
+            transactions = saved.filter(x => x.id !== excludeId);
+            try {
+                const m = buildActualMap(g);
+                const it = (groupBudgetItems[g] || []).find(i => i.id === itemId);
+                return it ? (parseFloat(it.budget) || 0) - (m.byId[itemId] || 0) - (m.retById[itemId] || 0) : 0;
+            } finally { transactions = saved; }
+        }
 
         // 場次手上的撥款餘額 = 出納撥款(扣退回) + 異動淨額 − 場次款項支出
         function groupHeldFunds(g) {
@@ -2652,10 +2691,11 @@
             const SIGN = { '1': 'signYouth', '2': 'signSenior', '3': 'signChild', '4': 'signAdult' };   // 各場次對應的簽到表
             const gBud = { '1': budgets.group1, '2': budgets.group2, '3': budgets.group3, '4': budgets.group4 };
             const gExp = { '1': 0, '2': 0, '3': 0, '4': 0 };
+            const gRet = { '1': 0, '2': 0, '3': 0, '4': 0 };
             let incomeTx = 0, totalExp = 0, trfNet = 0, returned = 0, directPaid = 0;
             transactions.forEach(t => {
                 if (t.flowType === 'income') incomeTx += t.amount;
-                else if (t.flowType === 'transfer') { trfNet += t.isReturn ? -t.amount : t.amount; if (t.isReturn) returned += t.amount; }
+                else if (t.flowType === 'transfer') { trfNet += t.isReturn ? -t.amount : t.amount; if (t.isReturn) { returned += t.amount; if (t.group in gRet) gRet[t.group] += t.amount; } }
                 else if (t.flowType === 'expense' || t.flowType === 'advance') {
                     totalExp += t.amount;
                     if (t.group in gExp) gExp[t.group] += t.amount;
@@ -2697,12 +2737,13 @@
             L.push('');
             L.push('🔹━━ 各場次執行情形 ━━🔹');
             GK.forEach((k, i) => {
-                const b = gBud[k] || 0, e = gExp[k], rem = b - e;
+                const b = gBud[k] || 0, e = gExp[k], rt = gRet[k], rem = b - e - rt;
                 const rate = b > 0 ? Math.round(e / b * 100) + '%' : '-';
                 L.push(`${['1️⃣', '2️⃣', '3️⃣', '4️⃣'][i]} ${GN[k]}`);
                 L.push(`   👥 參與人數：${part[k].n > 0 ? part[k].n.toLocaleString() + ' 人' : '尚未登錄'}`);
                 L.push(`   🎯 預算：${N(b)}`);
                 L.push(`   🧾 實支：${N(e)}（執行率 ${rate}）`);
+                if (rt > 0) L.push(`   ↩️ 已退回出納：${N(rt)}`);
                 L.push(`   ${rem < 0 ? '🚨' : '✅'} 剩餘：${N(rem)}${rem < 0 ? ' ⚠️已超支' : ''}`);
             });
             L.push('');
@@ -2710,7 +2751,7 @@
             L.push(`   👥 參與人數：${sumPart.toLocaleString()} 人`);
             L.push(`   🎯 預算：${N(sumBud)}`);
             L.push(`   🧾 實支：${N(totalExp)}`);
-            L.push(`   ✅ 剩餘：${N(sumBud - totalExp)}`);
+            L.push(`   ✅ 剩餘：${N(sumBud - totalExp - returned)}`);
             L.push('');
             L.push('📣 提醒：各場次的活動核銷資料及相關照片 📸，請務必傳給 @達昆 🙏');
             L.push('感謝大家的辛勞，願主賜福！🕊️');
@@ -2744,7 +2785,7 @@
             else sum = (groupBudgetItems[groupKey] || []).reduce((a, i) => a + (parseFloat(i.budget) || 0), 0);
             document.getElementById('detail-expense').textContent = `NT$ ${m.total.toLocaleString()}`;
             document.getElementById('detail-budget').textContent = `NT$ ${sum.toLocaleString()}`;
-            document.getElementById('detail-remain').textContent = `NT$ ${(sum - m.total).toLocaleString()}`;
+            document.getElementById('detail-remain').textContent = `NT$ ${(sum - m.total - m.retTotal).toLocaleString()}`;
         }
 
         // 每一列只扣自己那一列的實際支出，不與同名項目合併
@@ -2754,13 +2795,15 @@
             const items = groupBudgetItems[groupKey] || [];
             items.forEach((row, index) => {
                 const actual = m.byId[row.id] || 0;
-                const remain = (parseFloat(row.budget) || 0) - actual;
+                const ret = m.retById[row.id] || 0;
+                const remain = (parseFloat(row.budget) || 0) - actual - ret;
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td><input type="text" value="${esc(row.category)}" class="edit-cat" data-index="${index}" style="padding: 6px;" onchange="onItemEdit()"></td>
                     <td><input type="number" value="${row.budget}" class="edit-budget" data-index="${index}" min="0" style="padding: 6px;" oninput="onItemInput()" onchange="onItemEdit()"></td>
                     <td style="font-weight: bold;">NT$ ${actual.toLocaleString()}</td>
-                    <td class="cell-remain" data-actual="${actual}" style="color: ${remain < 0 ? '#ef4444' : '#10b981'}; font-weight: bold;">NT$ ${remain.toLocaleString()}</td>
+                    <td style="color:#be185d; font-weight:bold;">${ret ? 'NT$ ' + ret.toLocaleString() : '-'}</td>
+                    <td class="cell-remain" data-actual="${actual + ret}" style="color: ${remain < 0 ? '#ef4444' : '#10b981'}; font-weight: bold;">NT$ ${remain.toLocaleString()}</td>
                     <td><input type="text" value="${esc(row.note)}" class="edit-note" data-index="${index}" style="padding: 6px;" onchange="onItemEdit()"></td>
                     <td><button class="btn-delete" onclick="removeBudgetItem('${groupKey}', ${index})">刪除</button></td>
                 `;
@@ -2768,10 +2811,16 @@
             });
             Object.keys(m.outside).sort(strokeCmp).forEach(c => {
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${esc(c)}</td><td>-</td><td style="font-weight: bold;">NT$ ${m.outside[c].toLocaleString()}</td>
+                tr.innerHTML = `<td>${esc(c)}</td><td>-</td><td style="font-weight: bold;">NT$ ${m.outside[c].toLocaleString()}</td><td>-</td>
                     <td style="color:#ef4444; font-weight:bold;">預算外</td><td>（無對應預算列）</td><td></td>`;
                 budgetComparisonList.appendChild(tr);
             });
+            if (m.retUnassigned > 0) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>（尚未指定項目的退回）</td><td>-</td><td>-</td><td style="color:#be185d; font-weight:bold;">NT$ ${m.retUnassigned.toLocaleString()}</td>
+                    <td style="color:#d97706; font-weight:bold;">待歸類</td><td>舊的退回紀錄，請到「歷史帳目」按「修改」指定項目</td><td></td>`;
+                budgetComparisonList.appendChild(tr);
+            }
         }
 
         // 把畫面上輸入的內容寫回資料（否則「已同步」送出的仍是舊資料）
@@ -2893,6 +2942,7 @@
             let gExp = { '1': 0, '2': 0, '3': 0, '4': 0 };
             let gShiftIn = { '1': 0, '2': 0, '3': 0, '4': 0 };
             let gShiftOut = { '1': 0, '2': 0, '3': 0, '4': 0 };
+            let gReturn = { '1': 0, '2': 0, '3': 0, '4': 0 };
 
             transactions.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(t => {
                 if (t.flowType === 'income') {
@@ -2900,7 +2950,7 @@
                     cashierIncome += t.amount;
                 } else if (t.flowType === 'transfer') {
                     cashierTransferred += t.isReturn ? -t.amount : t.amount;
-                    if (t.isReturn) cashierReturned += t.amount;
+                    if (t.isReturn) { cashierReturned += t.amount; if (t.group in gReturn) gReturn[t.group] += t.amount; }
                     if (t.group in gTransfer) gTransfer[t.group] += t.isReturn ? -t.amount : t.amount;
                 } else if (t.flowType === 'shift') {
                     if (t.group in gShiftOut) gShiftOut[t.group] += t.amount;
@@ -3034,22 +3084,22 @@
             updateVersionDisplay();
             updateFormRemainHint();
 
-            const updateGroupCard = (id, exp, budget) => {
+            const updateGroupCard = (id, exp, budget, ret = 0) => {
                 const pct = budget > 0 ? Math.min(Math.round((exp / budget) * 100), 100) : 0;
                 const isOver = exp > budget;
                 document.getElementById(`${id}-status`).textContent = `已支: NT$ ${exp.toLocaleString()} (${pct}%) ${isOver ? '⚠️ 超支' : ''}`;
                 document.getElementById(`${id}-status`).style.color = isOver ? '#ef4444' : '#1e293b';
-                document.getElementById(`${id}-balance`).textContent = `剩餘: NT$ ${(budget - exp).toLocaleString()}`;
-                document.getElementById(`${id}-balance`).style.color = (budget - exp) < 0 ? '#ef4444' : '#555';
+                document.getElementById(`${id}-balance`).textContent = `剩餘: NT$ ${(budget - exp - ret).toLocaleString()}${ret ? '（已退回出納 NT$ ' + ret.toLocaleString() + '）' : ''}`;
+                document.getElementById(`${id}-balance`).style.color = (budget - exp - ret) < 0 ? '#ef4444' : '#555';
 
                 const bar = document.getElementById(`${id}-progress`);
                 bar.style.width = `${Math.min(pct, 100)}%`;
                 bar.style.backgroundColor = isOver ? '#ef4444' : pct > 75 ? '#f59e0b' : '#3b82f6';
             };
-            updateGroupCard('group1', gExp['1'], budgets.group1);
-            updateGroupCard('group2', gExp['2'], budgets.group2);
-            updateGroupCard('group3', gExp['3'], budgets.group3);
-            updateGroupCard('group4', gExp['4'], budgets.group4);
+            updateGroupCard('group1', gExp['1'], budgets.group1, gReturn['1']);
+            updateGroupCard('group2', gExp['2'], budgets.group2, gReturn['2']);
+            updateGroupCard('group3', gExp['3'], budgets.group3, gReturn['3']);
+            updateGroupCard('group4', gExp['4'], budgets.group4, gReturn['4']);
             renderCashflow();
             renderAnalysis();
             renderMyBudget();
